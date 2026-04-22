@@ -78,12 +78,12 @@ def db():
     conn.row_factory = sqlite3.Row
     try:
         yield conn
-        conn.commit()  # ✅ Commit automatique à la fin
+        conn.commit()
     except Exception:
-        conn.rollback()  # ✅ Rollback en cas d'erreur
+        conn.rollback()
         raise
     finally:
-        conn.close()  # ✅ Toujours fermé
+        conn.close()
 
 def init_db():
     with db() as conn:
@@ -138,15 +138,12 @@ def init_db():
             )
         """)
 
-        # Migration competition_athletes — gère tous les cas :
-        # table absente, ancienne (2 cols), correcte (3 cols avec discipline)
         cols = {
             row[1] for row in
             conn.execute("PRAGMA table_info(competition_athletes)").fetchall()
         }
 
         if "competition_id" not in cols:
-            # Table absente → création directe
             conn.execute("""
                 CREATE TABLE competition_athletes (
                     competition_id INTEGER,
@@ -158,7 +155,6 @@ def init_db():
                 )
             """)
         elif "discipline" not in cols:
-            # Table existante sans colonne discipline → migration douce
             conn.execute("""
                 CREATE TABLE competition_athletes_new (
                     competition_id INTEGER,
@@ -175,7 +171,7 @@ def init_db():
             """)
             conn.execute("DROP TABLE competition_athletes")
             conn.execute("ALTER TABLE competition_athletes_new RENAME TO competition_athletes")
-        # else : table déjà correcte, rien à faire
+
 init_db()
 
 # =========================
@@ -204,24 +200,19 @@ def get_all_competitions():
 # =========================
 # AUTH + PERSISTANCE SESSION
 # =========================
-
-# Étape 1 — JS injecté à chaque chargement (hors session active) :
-# si localStorage contient un pseudo, on l'injecte dans ?u= pour que
-# Python puisse le lire côté serveur au prochain cycle Streamlit.
 if "user" not in st.session_state:
 
-    # Étape 2 — Lecture du query param ?u= injecté par le JS ci-dessous
     saved_user = st.query_params.get("u", "")
     if saved_user:
         with db() as conn:
             exists = conn.execute(
-                "SELECT 1 FROM users WHERE username=?", (saved_user,)
+                "SELECT 1 FROM users WHERE username = :username",
+                {"username": saved_user}
             ).fetchone()
         if exists:
             st.session_state.user = saved_user
             st.rerun()
 
-    # Étape 3 — JS : lit localStorage et redirige si besoin
     st.markdown("""
 <script>
 (function() {
@@ -331,7 +322,7 @@ if "user" not in st.session_state:
         u = st.text_input("Choisis ton pseudo", placeholder="Ex: SpeedDemon42")
         if st.button("▶ Entrer dans l'arène", use_container_width=True) and u.strip():
             with db() as conn:
-                conn.execute("INSERT OR IGNORE INTO users VALUES (?)", (u.strip(),))
+                conn.execute("INSERT OR IGNORE INTO users VALUES (:username)", {"username": u.strip()})
             st.session_state.user = u.strip()
             st.query_params["u"] = u.strip()
             st.markdown(f"""
@@ -342,7 +333,7 @@ if "user" not in st.session_state:
             st.warning("Merci d'entrer un pseudo.")
     st.stop()
 
-current_user = st.session_state.user  # ✅ Renommé pour éviter conflit avec boucles
+current_user = st.session_state.user
 
 # =========================
 # SIDEBAR
@@ -383,7 +374,10 @@ if page == "👤 Athlètes":
             if submitted:
                 if fn.strip() and ln.strip():
                     with db() as conn:
-                        conn.execute("INSERT INTO athletes VALUES (NULL,?,?,?)", (fn.strip(), ln.strip(), age))
+                        conn.execute(
+                            "INSERT INTO athletes VALUES (NULL, :fn, :ln, :age)",
+                            {"fn": fn.strip(), "ln": ln.strip(), "age": age}
+                        )
                     st.success(f"✅ {fn} {ln} ajouté(e) !")
                     st.rerun()
                 else:
@@ -408,24 +402,22 @@ if page == "👤 Athlètes":
                     if st.button("🗑️", key=f"del_{a['id']}", help="Supprimer cet athlète"):
                         st.session_state[f"confirm_del_{a['id']}"] = True
 
-                # Confirmation suppression
                 if st.session_state.get(f"confirm_del_{a['id']}"):
                     st.warning(f"⚠️ Supprimer **{a['first_name']} {a['last_name']}** ? Cette action est irréversible.")
                     cc1, cc2 = st.columns(2)
                     if cc1.button("✅ Confirmer", key=f"yes_{a['id']}"):
                         with db() as conn:
                             conn.execute("PRAGMA foreign_keys = ON")
-                            conn.execute("DELETE FROM athletes WHERE id=?", (a['id'],))
+                            conn.execute("DELETE FROM athletes WHERE id = :id", {"id": a['id']})
                         st.rerun()
                     if cc2.button("❌ Annuler", key=f"no_{a['id']}"):
                         st.session_state[f"confirm_del_{a['id']}"] = False
                         st.rerun()
 
-                # PBs
                 with db() as conn:
                     pbs = conn.execute(
-                        "SELECT * FROM athlete_pbs WHERE athlete_id=? ORDER BY discipline",
-                        (a["id"],)
+                        "SELECT * FROM athlete_pbs WHERE athlete_id = :aid ORDER BY discipline",
+                        {"aid": a["id"]}
                     ).fetchall()
 
                 if pbs:
@@ -457,24 +449,21 @@ if page == "👤 Athlètes":
 
                         if st.form_submit_button("💾 Sauvegarder"):
                             with db() as conn:
-                                # Suppressions cochées
                                 for orig_discipline in to_delete:
                                     conn.execute(
-                                        "DELETE FROM athlete_pbs WHERE athlete_id=? AND discipline=?",
-                                        (a["id"], orig_discipline)
+                                        "DELETE FROM athlete_pbs WHERE athlete_id = :aid AND discipline = :disc",
+                                        {"aid": a["id"], "disc": orig_discipline}
                                     )
-                                # Mise à jour des PBs non supprimés
                                 for d, v, orig_d in inputs:
                                     if orig_d not in to_delete and d.strip():
                                         conn.execute(
-                                            "INSERT OR REPLACE INTO athlete_pbs VALUES (?,?,?)",
-                                            (a["id"], d.strip(), v)
+                                            "INSERT OR REPLACE INTO athlete_pbs VALUES (:aid, :disc, :pb)",
+                                            {"aid": a["id"], "disc": d.strip(), "pb": v}
                                         )
-                                # Nouveau PB
                                 if new_d.strip():
                                     conn.execute(
-                                        "INSERT OR REPLACE INTO athlete_pbs VALUES (?,?,?)",
-                                        (a["id"], new_d.strip(), new_v)
+                                        "INSERT OR REPLACE INTO athlete_pbs VALUES (:aid, :disc, :pb)",
+                                        {"aid": a["id"], "disc": new_d.strip(), "pb": new_v}
                                     )
                             st.session_state[f"show_pb_{a['id']}"] = False
                             st.success("PBs mis à jour !")
@@ -500,7 +489,6 @@ elif page == "🏟️ Compétitions":
             options = {f"{a['first_name']} {a['last_name']}": a["id"] for a in athletes}
             selected = st.multiselect("Athlètes participants", list(options.keys()))
 
-            # Pour chaque athlète sélectionné, choix de sa discipline
             athlete_disciplines = {}
             if selected:
                 st.markdown("**Discipline par athlète :**")
@@ -508,15 +496,14 @@ elif page == "🏟️ Compétitions":
                     aid = options[s]
                     with db() as conn:
                         pbs = conn.execute(
-                            "SELECT discipline FROM athlete_pbs WHERE athlete_id=? ORDER BY discipline",
-                            (aid,)
+                            "SELECT discipline FROM athlete_pbs WHERE athlete_id = :aid ORDER BY discipline",
+                            {"aid": aid}
                         ).fetchall()
                     disc_list = [pb["discipline"] for pb in pbs]
 
                     col_name, col_disc = st.columns([2, 3])
                     col_name.markdown(f"**{s}**")
                     if disc_list:
-                        # L'athlète a des PBs : on propose ses disciplines + "Autre"
                         disc_list_with_other = disc_list + ["✏️ Autre..."]
                         chosen = col_disc.selectbox(
                             "Discipline", disc_list_with_other,
@@ -530,7 +517,6 @@ elif page == "🏟️ Compétitions":
                         else:
                             athlete_disciplines[aid] = chosen
                     else:
-                        # Pas de PBs : saisie libre
                         athlete_disciplines[aid] = col_disc.text_input(
                             "Discipline (aucun PB enregistré)",
                             key=f"disc_free_{aid}"
@@ -543,14 +529,17 @@ elif page == "🏟️ Compétitions":
                 else:
                     with db() as conn:
                         cur = conn.cursor()
-                        cur.execute("INSERT INTO competitions VALUES (NULL,?,?)", (name.strip(), date.strftime("%Y-%m-%d")))
+                        cur.execute(
+                            "INSERT INTO competitions VALUES (NULL, :name, :date)",
+                            {"name": name.strip(), "date": date.strftime("%Y-%m-%d")}
+                        )
                         cid = cur.lastrowid
                         for s in selected:
                             aid = options[s]
                             disc = athlete_disciplines[aid].strip()
                             cur.execute(
-                                "INSERT OR IGNORE INTO competition_athletes (competition_id, athlete_id, discipline) VALUES (?,?,?)",
-                                (cid, aid, disc)
+                                "INSERT OR IGNORE INTO competition_athletes (competition_id, athlete_id, discipline) VALUES (:cid, :aid, :disc)",
+                                {"cid": cid, "aid": aid, "disc": disc}
                             )
                     st.success(f"✅ Compétition **{name}** créée avec {len(selected)} athlète(s) !")
                     st.rerun()
@@ -568,16 +557,15 @@ elif page == "🏟️ Compétitions":
                     SELECT a.first_name, a.last_name, ca.discipline
                     FROM competition_athletes ca
                     JOIN athletes a ON a.id = ca.athlete_id
-                    WHERE ca.competition_id=?
+                    WHERE ca.competition_id = :cid
                     ORDER BY a.last_name
-                """, (c["id"],)).fetchall()
+                """, {"cid": c["id"]}).fetchall()
 
             col1, col2 = st.columns([5, 1])
             col1.markdown(f"**{c['name']}** — {fmt(c['date'])}  `{len(ca_rows)} athlète(s)`")
             if col2.button("🗑️", key=f"delcomp_{c['id']}", help="Supprimer"):
                 st.session_state[f"confirm_delcomp_{c['id']}"] = True
 
-            # Détail des athlètes + disciplines
             if ca_rows:
                 detail = "  ".join([
                     f"{r['first_name']} {r['last_name']} `{r['discipline'] or '—'}`"
@@ -591,7 +579,7 @@ elif page == "🏟️ Compétitions":
                 if cc1.button("✅ Confirmer", key=f"yescomp_{c['id']}"):
                     with db() as conn:
                         conn.execute("PRAGMA foreign_keys = ON")
-                        conn.execute("DELETE FROM competitions WHERE id=?", (c["id"],))
+                        conn.execute("DELETE FROM competitions WHERE id = :id", {"id": c["id"]})
                     st.rerun()
                 if cc2.button("❌ Annuler", key=f"nocomp_{c['id']}"):
                     st.session_state[f"confirm_delcomp_{c['id']}"] = False
@@ -612,6 +600,7 @@ elif page == "🎯 Pronostics":
         for c in comps:
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
                 with db() as conn:
+                    # FIX : paramètres nommés — :cid utilisé 2 fois sans ambiguïté
                     ath = conn.execute("""
                         SELECT a.id, a.first_name, a.last_name,
                                ca.discipline,
@@ -621,13 +610,13 @@ elif page == "🎯 Pronostics":
                         JOIN athletes a ON a.id = ca.athlete_id
                         LEFT JOIN predictions p
                             ON p.athlete_id = a.id
-                            AND p.competition_id = ?
-                            AND p.username = ?
+                            AND p.competition_id = :cid
+                            AND p.username = :user
                         LEFT JOIN athlete_pbs pb
                             ON pb.athlete_id = a.id
                             AND pb.discipline = ca.discipline
-                        WHERE ca.competition_id = ?
-                    """, (c["id"], current_user, c["id"])).fetchall()
+                        WHERE ca.competition_id = :cid
+                    """, {"cid": c["id"], "user": current_user}).fetchall()
 
                 if not ath:
                     st.warning("Aucun athlète dans cette compétition.")
@@ -661,14 +650,14 @@ elif page == "🎯 Pronostics":
                         with db() as conn:
                             for aid, pred in predictions.items():
                                 conn.execute(
-                                    "INSERT OR REPLACE INTO predictions VALUES (?,?,?,?)",
-                                    (current_user, c["id"], aid, pred)
+                                    "INSERT OR REPLACE INTO predictions VALUES (:user, :cid, :aid, :pred)",
+                                    {"user": current_user, "cid": c["id"], "aid": aid, "pred": pred}
                                 )
                         st.success("✅ Pronostics enregistrés !")
                         st.rerun()
 
 # =========================
-# RÉSULTATS  ← PAGE MANQUANTE ajoutée !
+# RÉSULTATS
 # =========================
 elif page == "📊 Résultats":
     st.title("📊 Saisie des Résultats")
@@ -682,15 +671,17 @@ elif page == "📊 Résultats":
         for c in comps:
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
                 with db() as conn:
+                    # FIX : paramètres nommés — :cid utilisé 2 fois sans ambiguïté
                     ath = conn.execute("""
                         SELECT a.id, a.first_name, a.last_name, ca.discipline, r.result
                         FROM competition_athletes ca
                         JOIN athletes a ON a.id = ca.athlete_id
                         LEFT JOIN results r
-                            ON r.athlete_id = a.id AND r.competition_id = ?
-                        WHERE ca.competition_id = ?
+                            ON r.athlete_id = a.id
+                            AND r.competition_id = :cid
+                        WHERE ca.competition_id = :cid
                         ORDER BY a.last_name
-                    """, (c["id"], c["id"])).fetchall()
+                    """, {"cid": c["id"]}).fetchall()
 
                 if not ath:
                     st.warning("Aucun athlète dans cette compétition.")
@@ -718,8 +709,8 @@ elif page == "📊 Résultats":
                             for aid, res in results.items():
                                 if res > 0:
                                     conn.execute(
-                                        "INSERT OR REPLACE INTO results VALUES (?,?,?)",
-                                        (c["id"], aid, res)
+                                        "INSERT OR REPLACE INTO results VALUES (:cid, :aid, :res)",
+                                        {"cid": c["id"], "aid": aid, "res": res}
                                     )
                         st.success("✅ Résultats enregistrés !")
                         st.rerun()
@@ -749,15 +740,14 @@ elif page == "📜 Historique":
                         JOIN competition_athletes ca
                             ON ca.competition_id = p.competition_id
                             AND ca.athlete_id = p.athlete_id
-                        WHERE p.competition_id = ?
+                        WHERE p.competition_id = :cid
                         ORDER BY a.last_name, p.username
-                    """, (c["id"],)).fetchall()
+                    """, {"cid": c["id"]}).fetchall()
 
                 if not rows:
                     st.info("Aucun résultat disponible pour cette compétition.")
                     continue
 
-                # Tableau propre
                 headers = st.columns([2, 2, 2, 1, 1, 1])
                 headers[0].markdown("**Utilisateur**")
                 headers[1].markdown("**Athlète**")
@@ -780,13 +770,12 @@ elif page == "📜 Historique":
 # =========================
 # CLASSEMENT
 # =========================
-elif page == "🏆 Classement":
+elif page == "🏆 Classement Général":
     st.title("🏆 Classement Général")
 
     with db() as conn:
         all_users = conn.execute("SELECT username FROM users").fetchall()
 
-        # Toutes les compétitions avec résultats, triées par date
         comps_with_results = conn.execute("""
             SELECT DISTINCT c.id, c.name, c.date
             FROM competitions c
@@ -813,26 +802,22 @@ elif page == "🏆 Classement":
         return s
 
     def ranked(scores_map):
-        """Retourne {username: position} (1 = premier)"""
         sorted_list = sorted(scores_map.items(), key=lambda x: -x[1])
         ranks = {}
         for i, (u, _) in enumerate(sorted_list, 1):
             ranks[u] = i
         return ranks
 
-    # Score total actuel
     scores_now = compute_scores(all_scored_rows)
     ranks_now = ranked(scores_now)
     sorted_scores = sorted(scores_now.items(), key=lambda x: -x[1])
 
-    # Score avant la dernière compétition (pour le delta)
     last_comp = comps_with_results[-1] if comps_with_results else None
     if last_comp and len(comps_with_results) > 1:
         scores_before = compute_scores(all_scored_rows, exclude_comp_id=last_comp["id"])
         ranks_before = ranked(scores_before)
         delta_label = f"vs avant « {last_comp['name']} »"
     elif last_comp and len(comps_with_results) == 1:
-        # Une seule compétition : avant = tout le monde à égalité rang 1
         ranks_before = {u: 1 for u in usernames}
         delta_label = f"vs avant « {last_comp['name']} »"
     else:
@@ -850,7 +835,6 @@ elif page == "🏆 Classement":
     for i, (username, total_score) in enumerate(sorted_scores, 1):
         is_me = username == current_user
 
-        # Thème podium or / argent / bronze, sinon neutre
         if i == 1:
             bg = "linear-gradient(135deg, #F9D423 0%, #F7971E 100%)"
             border = "#E6A817"
@@ -872,14 +856,12 @@ elif page == "🏆 Classement":
             text_color = "#f1f5f9"
             rank_label = f"#{i}"
 
-        # Surlignage si c'est l'utilisateur connecté (hors podium)
         if is_me and i > 3:
             bg = "#2d3f5e"
             border = "#FFD700"
 
         me_badge = f"<span style='font-size:0.72em; color:{'#5a3a00' if i==1 else ('#444' if i==2 else ('#c8a07a' if i==3 else '#94a3b8'))}; margin-left:6px;'>(vous)</span>" if is_me else ""
 
-        # Calcul delta
         if ranks_before is not None:
             prev_rank = ranks_before.get(username, len(usernames))
             delta = prev_rank - i
@@ -908,7 +890,6 @@ elif page == "🏆 Classement":
         </div>
         """, unsafe_allow_html=True)
 
-    # Résumé de la dernière compétition
     if last_comp:
         st.divider()
         with st.expander(f"📋 Détail « {last_comp['name']} » — {fmt(last_comp['date'])}"):
@@ -922,10 +903,10 @@ elif page == "🏆 Classement":
                     JOIN results r
                         ON p.competition_id = r.competition_id
                         AND p.athlete_id = r.athlete_id
-                    WHERE p.competition_id = ?
+                    WHERE p.competition_id = :cid
                     GROUP BY p.username
                     ORDER BY pts DESC
-                """, (last_comp["id"],)).fetchall()
+                """, {"cid": last_comp["id"]}).fetchall()
 
             if last_rows:
                 for j, row in enumerate(last_rows, 1):
