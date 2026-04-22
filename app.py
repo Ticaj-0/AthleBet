@@ -3,7 +3,11 @@ import psycopg2
 import psycopg2.extras
 from datetime import datetime
 from contextlib import contextmanager
-
+try:
+    conn = psycopg2.connect(get_db_url(), sslmode="require")
+    st.success("Connexion OK")
+except Exception as e:
+    st.error(e)
 st.set_page_config(page_title="Athlé Bet", page_icon="🏃", layout="wide")
 
 # =========================
