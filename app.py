@@ -87,58 +87,78 @@ def db():
 
 def init_db():
     with db() as conn:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY
-        );
+        conn.execute("PRAGMA foreign_keys = ON")
 
-        CREATE TABLE IF NOT EXISTS athletes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            first_name TEXT NOT NULL,
-            last_name TEXT NOT NULL,
-            age INTEGER
-        );
-
-        CREATE TABLE IF NOT EXISTS athlete_pbs (
-            athlete_id INTEGER,
-            discipline TEXT,
-            pb REAL,
-            PRIMARY KEY (athlete_id, discipline),
-            FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS competitions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            date TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS predictions (
-            username TEXT,
-            competition_id INTEGER,
-            athlete_id INTEGER,
-            prediction REAL,
-            PRIMARY KEY(username, competition_id, athlete_id),
-            FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS results (
-            competition_id INTEGER,
-            athlete_id INTEGER,
-            result REAL,
-            PRIMARY KEY(competition_id, athlete_id),
-            FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
-        );
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS athletes (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                first_name TEXT NOT NULL,
+                last_name  TEXT NOT NULL,
+                age        INTEGER
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS athlete_pbs (
+                athlete_id INTEGER,
+                discipline TEXT,
+                pb         REAL,
+                PRIMARY KEY (athlete_id, discipline),
+                FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS competitions (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                date TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS predictions (
+                username       TEXT,
+                competition_id INTEGER,
+                athlete_id     INTEGER,
+                prediction     REAL,
+                PRIMARY KEY (username, competition_id, athlete_id),
+                FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS results (
+                competition_id INTEGER,
+                athlete_id     INTEGER,
+                result         REAL,
+                PRIMARY KEY (competition_id, athlete_id),
+                FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
+            )
         """)
 
-        # ✅ Migration competition_athletes : doit avoir exactement (competition_id, athlete_id, discipline)
-        cols = [row[1] for row in conn.execute("PRAGMA table_info(competition_athletes)").fetchall()]
-        expected = {"competition_id", "athlete_id", "discipline"}
+        # Migration competition_athletes — gère tous les cas :
+        # table absente, ancienne (2 cols), correcte (3 cols avec discipline)
+        cols = {
+            row[1] for row in
+            conn.execute("PRAGMA table_info(competition_athletes)").fetchall()
+        }
 
-        if set(cols) == expected:
-            pass  # Table déjà correcte
-        elif {"competition_id", "athlete_id"}.issubset(set(cols)):
-            # Table existe mais sans discipline → on recrée en conservant les données
+        if "competition_id" not in cols:
+            # Table absente → création directe
+            conn.execute("""
+                CREATE TABLE competition_athletes (
+                    competition_id INTEGER,
+                    athlete_id     INTEGER,
+                    discipline     TEXT,
+                    PRIMARY KEY (competition_id, athlete_id),
+                    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (athlete_id)     REFERENCES athletes(id)     ON DELETE CASCADE
+                )
+            """)
+        elif "discipline" not in cols:
+            # Table existante sans colonne discipline → migration douce
             conn.execute("""
                 CREATE TABLE competition_athletes_new (
                     competition_id INTEGER,
@@ -155,20 +175,7 @@ def init_db():
             """)
             conn.execute("DROP TABLE competition_athletes")
             conn.execute("ALTER TABLE competition_athletes_new RENAME TO competition_athletes")
-        else:
-            # Table absente ou schéma inconnu → recréation propre
-            conn.execute("DROP TABLE IF EXISTS competition_athletes")
-            conn.execute("""
-                CREATE TABLE competition_athletes (
-                    competition_id INTEGER,
-                    athlete_id     INTEGER,
-                    discipline     TEXT,
-                    PRIMARY KEY (competition_id, athlete_id),
-                    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
-                    FOREIGN KEY (athlete_id)     REFERENCES athletes(id)     ON DELETE CASCADE
-                )
-            """)
-
+        # else : table déjà correcte, rien à faire
 init_db()
 
 # =========================
