@@ -888,19 +888,27 @@ elif page == "🏆 Classement":
 
         pts_color = "#3d2000" if i == 1 else ("#1a1a1a" if i == 2 else ("#fff0e0" if i == 3 else "#e94560"))
 
-        st.markdown(f"""
+        html_card = f"""
         <div style="background:{bg};border:2px solid {border};border-radius:12px;
                     padding:14px 22px;margin-bottom:10px;display:flex;
                     justify-content:space-between;align-items:center;
                     box-shadow:0 2px 8px rgba(0,0,0,0.18);">
-            <span style="font-size:1.18em;color:{text_color};display:flex;align-items:center;gap:10px;">
+        
+            <div style="display:flex;align-items:center;gap:10px;color:{text_color};font-size:1.18em;">
                 <span style="font-size:1.3em;">{rank_label}</span>
-                <strong>{username}</strong>{me_badge}
+                <strong>{username}</strong>
+                {me_badge}
                 {delta_html}
-            </span>
-            <span style="font-size:1.25em;font-weight:800;color:{pts_color};">{total_score} pts</span>
+            </div>
+        
+            <div style="font-size:1.25em;font-weight:800;color:{pts_color};">
+                {total_score} pts
+            </div>
+        
         </div>
-        """, unsafe_allow_html=True)
+        """
+        
+        st.markdown(html_card, unsafe_allow_html=True)
 
     if last_comp:
         st.divider()
