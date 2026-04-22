@@ -190,7 +190,14 @@ def score(p, r):
     return max(0, int(150 - d * 4))
 
 def rows_to_dicts(rows):
-    return [dict(row) for row in rows]
+    if not rows:
+        return []
+    return [{k: row[k] for k in row.keys()} for row in rows]
+
+def row_to_dict(row):
+    if row is None:
+        return None
+    return {k: row[k] for k in row.keys()}
 
 def get_all_athletes():
     with db() as conn:
@@ -208,10 +215,10 @@ if "user" not in st.session_state:
     saved_user = st.query_params.get("u", "")
     if saved_user:
         with db() as conn:
-            exists = conn.execute(
+            exists = row_to_dict(conn.execute(
                 "SELECT 1 FROM users WHERE username = :username",
                 {"username": saved_user}
-            ).fetchone()
+            ).fetchone())
         if exists:
             st.session_state.user = saved_user
             st.rerun()
