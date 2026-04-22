@@ -81,16 +81,25 @@ def get_db_url():
 
 @contextmanager
 def db():
-    conn = psycopg2.connect(get_db_url(), cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         conn = psycopg2.connect(
             get_db_url(),
             cursor_factory=psycopg2.extras.RealDictCursor,
             sslmode="require"
         )
-        st.success("Connexion OK")
+        st.success("Connexion OK")  # debug temporaire
+
+        yield conn
+
+        conn.commit()
+
     except Exception as e:
         st.error(f"Erreur DB: {e}")
+        raise
+
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
 def init_db():
     with db() as conn:
