@@ -140,7 +140,7 @@ def init_db():
 
         cols = {
             row[1] for row in
-            rows_to_dicts(conn.execute("PRAGMA table_info(competition_athletes)").fetchall())
+            conn.execute("PRAGMA table_info(competition_athletes)").fetchall()
         }
 
         if "competition_id" not in cols:
