@@ -22,7 +22,7 @@ c.execute("CREATE TABLE IF NOT EXISTS chat (group_id INTEGER, username TEXT, mes
 conn.commit()
 
 # =============================
-# AUTH (AMÉLIORÉ)
+# AUTH
 # =============================
 if "user" not in st.session_state:
     st.title("🏃 Athlé Bet")
@@ -43,7 +43,10 @@ user = st.session_state.user
 # =============================
 # NAV
 # =============================
-page = st.sidebar.radio("Menu", ["🏠 Compétitions", "🏆 Classement", "➕ Ajouter", "🎯 Résultats", "👥 Groupes", "📈 Stats", "💬 Chat"])
+page = st.sidebar.radio(
+    "Menu",
+    ["🏠 Compétitions", "🏆 Classement", "➕ Ajouter", "🎯 Résultats", "👥 Groupes", "📈 Stats", "💬 Chat"]
+)
 
 # =============================
 # UTIL
@@ -51,6 +54,12 @@ page = st.sidebar.radio("Menu", ["🏠 Compétitions", "🏆 Classement", "➕ A
 def score(pred, actual):
     diff = abs(pred - actual)
     return 300 if diff == 0 else max(0, 150 - diff * 4)
+
+# =============================
+# SET COMPETITION (FIX CLICK ISSUE)
+# =============================
+def set_competition(cid):
+    st.session_state.comp = cid
 
 # =============================
 # GROUPES
@@ -78,7 +87,7 @@ if page == "👥 Groupes":
                 st.success("Rejoint")
 
 # =============================
-# AJOUT
+# AJOUT COMPETITION
 # =============================
 elif page == "➕ Ajouter":
     st.title("➕ Compétition")
@@ -86,9 +95,12 @@ elif page == "➕ Ajouter":
     name = st.text_input("Nom")
     date = st.date_input("Date")
 
-    groups = c.execute("SELECT g.id,g.name FROM groups g JOIN group_members m ON g.id=m.group_id WHERE m.username=?", (user,)).fetchall()
-    gdict = {g[1]: g[0] for g in groups}
+    groups = c.execute(
+        "SELECT g.id,g.name FROM groups g JOIN group_members m ON g.id=m.group_id WHERE m.username=?",
+        (user,)
+    ).fetchall()
 
+    gdict = {g[1]: g[0] for g in groups}
     gsel = st.selectbox("Groupe", list(gdict.keys())) if gdict else None
 
     nb = st.slider("Nombre d'athlètes", 1, 15)
@@ -104,40 +116,59 @@ elif page == "➕ Ajouter":
 
     if st.button("Créer") and gsel:
         gid = gdict[gsel]
-        c.execute("INSERT INTO competitions (name,date,group_id) VALUES (?,?,?)", (name, str(date), gid))
+        stored_date = date.strftime("%Y-%m-%d")
+
+        c.execute(
+            "INSERT INTO competitions (name,date,group_id) VALUES (?,?,?)",
+            (name, stored_date, gid)
+        )
         cid = c.lastrowid
 
         for n, d in athletes:
             if n:
-                c.execute("INSERT INTO athletes (competition_id,name,discipline) VALUES (?,?,?)", (cid, n, d))
+                c.execute(
+                    "INSERT INTO athletes (competition_id,name,discipline) VALUES (?,?,?)",
+                    (cid, n, d)
+                )
 
         conn.commit()
         st.success("OK")
 
 # =============================
-# COMPETITIONS (UI COMPACT AMÉLIORÉ)
+# COMPETITIONS (FIX VISUAL + FIRST CLICK SELECTION)
 # =============================
 elif page == "🏠 Compétitions":
     st.title("🏠 Compétitions")
 
     comps = c.execute("SELECT * FROM competitions").fetchall()
 
+    st.subheader("Liste des compétitions")
+
     for cid, name, date, gid in comps:
-        col1, col2 = st.columns([4,1])
 
-        with col1:
-            if st.button(f"🏁 {name} | 📅 {date}", key=f"c{cid}"):
-                st.session_state.comp = cid
+        try:
+            display_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
+        except:
+            display_date = date
 
-        with col2:
-            st.caption("")
+        is_selected = st.session_state.get("comp") == cid
 
+        label = f"🟢 {name} | 📅 {display_date}" if is_selected else f"🏁 {name} | 📅 {display_date}"
+
+        st.button(label, key=f"c{cid}", on_click=set_competition, args=(cid,))
+
+    # =============================
+    # ATHLETES + PRONOSTICS
+    # =============================
     if "comp" in st.session_state:
-        athletes = c.execute("SELECT * FROM athletes WHERE competition_id=?", (st.session_state.comp,)).fetchall()
+
+        athletes = c.execute(
+            "SELECT * FROM athletes WHERE competition_id=?",
+            (st.session_state.comp,)
+        ).fetchall()
 
         st.subheader("🏃 Athlètes & Pronostics")
 
-        # AFFICHAGE PLUS COMPACT
         for i in range(0, len(athletes), 2):
             cols = st.columns(2)
 
@@ -146,18 +177,21 @@ elif page == "🏠 Compétitions":
                     aid, _, n, d, r = athletes[i + j]
 
                     with cols[j]:
-                        with st.container():
-                            st.markdown(f"**{n}** ({d})")
+                        st.markdown(f"**{n}** ({d})")
 
-                            existing = c.execute("SELECT prediction FROM predictions WHERE username=? AND athlete_id=?", (user, aid)).fetchone()
-                            val = existing[0] if existing else 0.0
+                        existing = c.execute(
+                            "SELECT prediction FROM predictions WHERE username=? AND athlete_id=?",
+                            (user, aid)
+                        ).fetchone()
 
-                            p = st.number_input("⏱", value=float(val), key=f"p{aid}", label_visibility="collapsed")
+                        val = existing[0] if existing else 0.0
 
-                            if st.button("💾", key=f"s{aid}"):
-                                c.execute("REPLACE INTO predictions VALUES (?,?,?)", (user, aid, p))
-                                conn.commit()
-                                st.toast("Sauvegardé ✅")
+                        p = st.number_input("⏱", value=float(val), key=f"p{aid}", label_visibility="collapsed")
+
+                        if st.button("💾", key=f"s{aid}"):
+                            c.execute("REPLACE INTO predictions VALUES (?,?,?)", (user, aid, p))
+                            conn.commit()
+                            st.toast("Sauvegardé ✅")
 
 # =============================
 # RESULTATS
@@ -168,8 +202,18 @@ elif page == "🎯 Résultats":
     comps = c.execute("SELECT * FROM competitions").fetchall()
 
     for cid, name, date, gid in comps:
-        with st.expander(f"🏁 {name} — 📅 {date}"):
-            athletes = c.execute("SELECT * FROM athletes WHERE competition_id=?", (cid,)).fetchall()
+
+        try:
+            display_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
+        except:
+            display_date = date
+
+        with st.expander(f"🏁 {name} — 📅 {display_date}"):
+
+            athletes = c.execute(
+                "SELECT * FROM athletes WHERE competition_id=?",
+                (cid,)
+            ).fetchall()
 
             for aid, _, n, _, r in athletes:
                 val = float(r) if r else 0.0
@@ -198,8 +242,6 @@ elif page == "🏆 Classement":
             scores[u] += score(p, r)
 
     df = pd.DataFrame(list(scores.items()), columns=["Joueur", "Points"]).sort_values(by="Points", ascending=False)
-
-    st.subheader("Classement")
 
     for i, row in enumerate(df.itertuples(index=False), start=1):
         medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
@@ -248,4 +290,4 @@ elif page == "💬 Chat":
         for m in msgs:
             st.write(f"{m[0]}: {m[1]}")
 
-st.sidebar.success("V7 UX COMPACT 🚀")
+st.sidebar.success("V7 UX CLEAN + FIX SELECT 🚀")
