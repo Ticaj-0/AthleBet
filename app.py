@@ -16,9 +16,15 @@ c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY)")
 c.execute("CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY, name TEXT, code TEXT)")
 c.execute("CREATE TABLE IF NOT EXISTS group_members (group_id INTEGER, username TEXT)")
 c.execute("CREATE TABLE IF NOT EXISTS competitions (id INTEGER PRIMARY KEY, name TEXT, date TEXT, group_id INTEGER)")
-c.execute("CREATE TABLE IF NOT EXISTS athletes (id INTEGER PRIMARY KEY, competition_id INTEGER, name TEXT, discipline TEXT, result REAL)")
+c.execute("CREATE TABLE IF NOT EXISTS athletes (id INTEGER PRIMARY KEY, competition_id INTEGER, name TEXT, discipline TEXT, result REAL, pb REAL)")
 c.execute("CREATE TABLE IF NOT EXISTS predictions (username TEXT, athlete_id INTEGER, prediction REAL, PRIMARY KEY(username, athlete_id))")
 c.execute("CREATE TABLE IF NOT EXISTS chat (group_id INTEGER, username TEXT, message TEXT, time TEXT)")
+
+try:
+    c.execute("ALTER TABLE athletes ADD COLUMN pb REAL")
+except:
+    pass
+
 conn.commit()
 
 # =============================
@@ -45,20 +51,20 @@ user = st.session_state.user
 # =============================
 page = st.sidebar.radio(
     "Menu",
-    ["🏠 Compétitions", "🏆 Classement", "➕ Ajouter", "🎯 Résultats", "👥 Groupes", "📈 Stats", "💬 Chat"]
+    ["🏠 Compétitions", "🏆 Classement", "➕ Ajouter", "🎯 Résultats", "👥 Groupes", "📜 Historique", "💬 Chat"]
 )
 
 # =============================
-# UTIL
+# SCORE
 # =============================
 def score(pred, actual):
     diff = abs(pred - actual)
     return 300 if diff == 0 else max(0, 150 - diff * 4)
 
 # =============================
-# SET COMPETITION (FIX CLICK ISSUE)
+# COMP SET
 # =============================
-def set_competition(cid):
+def set_comp(cid):
     st.session_state.comp = cid
 
 # =============================
@@ -87,7 +93,7 @@ if page == "👥 Groupes":
                 st.success("Rejoint")
 
 # =============================
-# AJOUT COMPETITION
+# AJOUT
 # =============================
 elif page == "➕ Ajouter":
     st.title("➕ Compétition")
@@ -95,77 +101,58 @@ elif page == "➕ Ajouter":
     name = st.text_input("Nom")
     date = st.date_input("Date")
 
-    groups = c.execute(
-        "SELECT g.id,g.name FROM groups g JOIN group_members m ON g.id=m.group_id WHERE m.username=?",
-        (user,)
-    ).fetchall()
-
+    groups = c.execute("SELECT g.id,g.name FROM groups g JOIN group_members m ON g.id=m.group_id WHERE m.username=?", (user,)).fetchall()
     gdict = {g[1]: g[0] for g in groups}
+
     gsel = st.selectbox("Groupe", list(gdict.keys())) if gdict else None
 
     nb = st.slider("Nombre d'athlètes", 1, 15)
 
     athletes = []
     for i in range(nb):
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             n = st.text_input(f"Nom {i}")
         with c2:
             d = st.text_input(f"Disc {i}")
-        athletes.append((n, d))
+        with c3:
+            pb = st.number_input(f"PB {i}", value=0.0)
+        athletes.append((n, d, pb))
 
     if st.button("Créer") and gsel:
         gid = gdict[gsel]
         stored_date = date.strftime("%Y-%m-%d")
 
-        c.execute(
-            "INSERT INTO competitions (name,date,group_id) VALUES (?,?,?)",
-            (name, stored_date, gid)
-        )
+        c.execute("INSERT INTO competitions (name,date,group_id) VALUES (?,?,?)", (name, stored_date, gid))
         cid = c.lastrowid
 
-        for n, d in athletes:
+        for n, d, pb in athletes:
             if n:
-                c.execute(
-                    "INSERT INTO athletes (competition_id,name,discipline) VALUES (?,?,?)",
-                    (cid, n, d)
-                )
+                c.execute("INSERT INTO athletes (competition_id,name,discipline,pb) VALUES (?,?,?,?)", (cid, n, d, pb))
 
         conn.commit()
         st.success("OK")
 
 # =============================
-# COMPETITIONS (FIX VISUAL + FIRST CLICK SELECTION)
+# COMPETITIONS (PB INLINE)
 # =============================
 elif page == "🏠 Compétitions":
     st.title("🏠 Compétitions")
 
     comps = c.execute("SELECT * FROM competitions").fetchall()
 
-    st.subheader("Liste des compétitions")
-
     for cid, name, date, gid in comps:
-
+        display_date = date
         try:
             display_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
         except:
-            display_date = date
+            pass
 
-        is_selected = st.session_state.get("comp") == cid
+        label = f"🏁 {name} | 📅 {display_date}"
+        st.button(label, key=f"c{cid}", on_click=set_comp, args=(cid,))
 
-        label = f"🟢 {name} | 📅 {display_date}" if is_selected else f"🏁 {name} | 📅 {display_date}"
-
-        st.button(label, key=f"c{cid}", on_click=set_competition, args=(cid,))
-
-    # =============================
-    # ATHLETES + PRONOSTICS
-    # =============================
     if "comp" in st.session_state:
-
-        athletes = c.execute(
-            "SELECT * FROM athletes WHERE competition_id=?",
-            (st.session_state.comp,)
-        ).fetchall()
+        athletes = c.execute("SELECT * FROM athletes WHERE competition_id=?", (st.session_state.comp,)).fetchall()
 
         st.subheader("🏃 Athlètes & Pronostics")
 
@@ -174,16 +161,13 @@ elif page == "🏠 Compétitions":
 
             for j in range(2):
                 if i + j < len(athletes):
-                    aid, _, n, d, r = athletes[i + j]
+                    aid, _, n, d, r, pb = athletes[i + j]
 
                     with cols[j]:
-                        st.markdown(f"**{n}** ({d})")
+                        pb_txt = f" — PB: {pb}" if pb else ""
+                        st.markdown(f"**{n} ({d}){pb_txt}**")
 
-                        existing = c.execute(
-                            "SELECT prediction FROM predictions WHERE username=? AND athlete_id=?",
-                            (user, aid)
-                        ).fetchone()
-
+                        existing = c.execute("SELECT prediction FROM predictions WHERE username=? AND athlete_id=?", (user, aid)).fetchone()
                         val = existing[0] if existing else 0.0
 
                         p = st.number_input("⏱", value=float(val), key=f"p{aid}", label_visibility="collapsed")
@@ -191,7 +175,7 @@ elif page == "🏠 Compétitions":
                         if st.button("💾", key=f"s{aid}"):
                             c.execute("REPLACE INTO predictions VALUES (?,?,?)", (user, aid, p))
                             conn.commit()
-                            st.toast("Sauvegardé ✅")
+                            st.toast("Sauvegardé")
 
 # =============================
 # RESULTATS
@@ -202,28 +186,21 @@ elif page == "🎯 Résultats":
     comps = c.execute("SELECT * FROM competitions").fetchall()
 
     for cid, name, date, gid in comps:
-
+        display_date = date
         try:
             display_date = datetime.strptime(date, "%Y-%m-%d").strftime("%d-%m-%Y")
         except:
-            display_date = date
+            pass
 
         with st.expander(f"🏁 {name} — 📅 {display_date}"):
+            athletes = c.execute("SELECT * FROM athletes WHERE competition_id=?", (cid,)).fetchall()
 
-            athletes = c.execute(
-                "SELECT * FROM athletes WHERE competition_id=?",
-                (cid,)
-            ).fetchall()
-
-            for aid, _, n, _, r in athletes:
-                val = float(r) if r else 0.0
-
-                res = st.number_input(n, value=val, key=f"r{aid}")
+            for aid, _, n, _, r, pb in athletes:
+                res = st.number_input(n, value=float(r or 0), key=f"r{aid}")
 
                 if st.button("Valider", key=f"vr{aid}"):
                     c.execute("UPDATE athletes SET result=? WHERE id=?", (res, aid))
                     conn.commit()
-                    st.toast("Résultat enregistré")
 
 # =============================
 # CLASSEMENT
@@ -243,28 +220,43 @@ elif page == "🏆 Classement":
 
     df = pd.DataFrame(list(scores.items()), columns=["Joueur", "Points"]).sort_values(by="Points", ascending=False)
 
-    for i, row in enumerate(df.itertuples(index=False), start=1):
+    for i, row in enumerate(df.itertuples(index=False), 1):
         medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
         st.write(f"{medal} {i}. {row.Joueur} — {row.Points} pts")
 
 # =============================
-# STATS
+# HISTORIQUE (COMPACT)
 # =============================
-elif page == "📈 Stats":
-    st.title("📈 Stats")
+elif page == "📜 Historique":
+    st.title("📜 Historique")
 
-    preds = c.execute("SELECT username, athlete_id, prediction FROM predictions").fetchall()
+    users = c.execute("SELECT username FROM users").fetchall()
 
-    data = {}
+    for u, in users:
+        st.markdown(f"### 👤 {u}")
 
-    for u, aid, p in preds:
-        r = c.execute("SELECT result FROM athletes WHERE id=?", (aid,)).fetchone()[0]
-        if r is not None:
-            data.setdefault(u, []).append(abs(p - r))
+        comps = c.execute("SELECT * FROM competitions").fetchall()
 
-    df = pd.DataFrame([(u, sum(v)/len(v)) for u,v in data.items()], columns=["Joueur","Erreur"])
+        for cid, cname, cdate, gid in comps:
+            athletes = c.execute("SELECT id,result FROM athletes WHERE competition_id=?", (cid,)).fetchall()
 
-    st.bar_chart(df.set_index("Joueur"))
+            rows = []
+            total = 0
+
+            for aid, res in athletes:
+                pred = c.execute("SELECT prediction FROM predictions WHERE username=? AND athlete_id=?", (u, aid)).fetchone()
+
+                if pred and res is not None:
+                    diff = abs(pred[0] - res)
+                    pts = score(pred[0], res)
+                    total += pts
+                    rows.append((aid, pred[0], res, diff, pts))
+
+            if rows:
+                st.markdown(f"**🏁 {cname} — Total {total} pts**")
+
+                for r in rows:
+                    st.write(f"{r[0]} | 🎯 {r[1]} | 🏁 {r[2]} | 📏 {r[3]} | ⭐ {r[4]}")
 
 # =============================
 # CHAT
@@ -290,4 +282,4 @@ elif page == "💬 Chat":
         for m in msgs:
             st.write(f"{m[0]}: {m[1]}")
 
-st.sidebar.success("V7 UX CLEAN + FIX SELECT 🚀")
+st.sidebar.success("V7 FINAL UX 🚀")
