@@ -77,6 +77,15 @@ section[data-testid="stSidebar"] * {
 
 @st.cache_resource
 def get_db_url():
+    try:
+    conn = psycopg2.connect(
+        get_db_url(),
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        sslmode="require"
+    )
+    st.success("Connexion OK")
+    except Exception as e:
+        st.error(f"Erreur DB: {e}")
     return st.secrets["supabase"]["url"]
 
 @contextmanager
