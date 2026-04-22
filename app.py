@@ -1,5 +1,6 @@
 import streamlit as st
-import sqlite3
+import psycopg2
+import psycopg2.extras
 from datetime import datetime
 from contextlib import contextmanager
 
@@ -68,14 +69,19 @@ section[data-testid="stSidebar"] * {
 """, unsafe_allow_html=True)
 
 # =========================
-# DB
+# DB — Supabase / PostgreSQL
 # =========================
-DB = "app.db"
+# Dans Streamlit Cloud, ajoutez dans Secrets :
+# [supabase]
+# url = "postgresql://postgres:[MOT_DE_PASSE]@db.[REF].supabase.co:5432/postgres"
+
+@st.cache_resource
+def get_db_url():
+    return st.secrets["supabase"]["url"]
 
 @contextmanager
 def db():
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(get_db_url(), cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         yield conn
         conn.commit()
@@ -87,22 +93,24 @@ def db():
 
 def init_db():
     with db() as conn:
-        conn.execute("PRAGMA foreign_keys = ON")
+        cur = conn.cursor()
 
-        conn.execute("""
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY
             )
         """)
-        conn.execute("""
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS athletes (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                id         SERIAL PRIMARY KEY,
                 first_name TEXT NOT NULL,
                 last_name  TEXT NOT NULL,
                 age        INTEGER
             )
         """)
-        conn.execute("""
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS athlete_pbs (
                 athlete_id INTEGER,
                 discipline TEXT,
@@ -111,14 +119,27 @@ def init_db():
                 FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
             )
         """)
-        conn.execute("""
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS competitions (
-                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                id   SERIAL PRIMARY KEY,
                 name TEXT NOT NULL,
                 date TEXT NOT NULL
             )
         """)
-        conn.execute("""
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS competition_athletes (
+                competition_id INTEGER,
+                athlete_id     INTEGER,
+                discipline     TEXT,
+                PRIMARY KEY (competition_id, athlete_id),
+                FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+                FOREIGN KEY (athlete_id)     REFERENCES athletes(id)     ON DELETE CASCADE
+            )
+        """)
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS predictions (
                 username       TEXT,
                 competition_id INTEGER,
@@ -128,7 +149,8 @@ def init_db():
                 FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
             )
         """)
-        conn.execute("""
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS results (
                 competition_id INTEGER,
                 athlete_id     INTEGER,
@@ -138,39 +160,13 @@ def init_db():
             )
         """)
 
-        cols = {
-            row[1] for row in
-            conn.execute("PRAGMA table_info(competition_athletes)").fetchall()
-        }
-
-        if "competition_id" not in cols:
-            conn.execute("""
-                CREATE TABLE competition_athletes (
-                    competition_id INTEGER,
-                    athlete_id     INTEGER,
-                    discipline     TEXT,
-                    PRIMARY KEY (competition_id, athlete_id),
-                    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
-                    FOREIGN KEY (athlete_id)     REFERENCES athletes(id)     ON DELETE CASCADE
-                )
-            """)
-        elif "discipline" not in cols:
-            conn.execute("""
-                CREATE TABLE competition_athletes_new (
-                    competition_id INTEGER,
-                    athlete_id     INTEGER,
-                    discipline     TEXT,
-                    PRIMARY KEY (competition_id, athlete_id),
-                    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
-                    FOREIGN KEY (athlete_id)     REFERENCES athletes(id)     ON DELETE CASCADE
-                )
-            """)
-            conn.execute("""
-                INSERT OR IGNORE INTO competition_athletes_new (competition_id, athlete_id, discipline)
-                SELECT competition_id, athlete_id, NULL FROM competition_athletes
-            """)
-            conn.execute("DROP TABLE competition_athletes")
-            conn.execute("ALTER TABLE competition_athletes_new RENAME TO competition_athletes")
+        # Migration : ajout colonne discipline si absente
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'competition_athletes' AND column_name = 'discipline'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE competition_athletes ADD COLUMN discipline TEXT")
 
 init_db()
 
@@ -180,8 +176,8 @@ init_db()
 def fmt(d):
     try:
         return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
-    except ValueError:
-        return d
+    except (ValueError, TypeError):
+        return str(d) if d else ""
 
 def score(p, r):
     d = abs(p - r)
@@ -190,22 +186,19 @@ def score(p, r):
     return max(0, int(150 - d * 4))
 
 def rows_to_dicts(rows):
-    if not rows:
-        return []
-    return [{k: row[k] for k in row.keys()} for row in rows]
-
-def row_to_dict(row):
-    if row is None:
-        return None
-    return {k: row[k] for k in row.keys()}
+    return [dict(r) for r in rows] if rows else []
 
 def get_all_athletes():
     with db() as conn:
-        return rows_to_dicts(conn.execute("SELECT * FROM athletes ORDER BY last_name, first_name").fetchall())
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM athletes ORDER BY last_name, first_name")
+        return rows_to_dicts(cur.fetchall())
 
 def get_all_competitions():
     with db() as conn:
-        return rows_to_dicts(conn.execute("SELECT * FROM competitions ORDER BY date DESC").fetchall())
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM competitions ORDER BY date DESC")
+        return rows_to_dicts(cur.fetchall())
 
 # =========================
 # AUTH + PERSISTANCE SESSION
@@ -215,10 +208,9 @@ if "user" not in st.session_state:
     saved_user = st.query_params.get("u", "")
     if saved_user:
         with db() as conn:
-            exists = row_to_dict(conn.execute(
-                "SELECT 1 FROM users WHERE username = :username",
-                {"username": saved_user}
-            ).fetchone())
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM users WHERE username = %s", (saved_user,))
+            exists = cur.fetchone()
         if exists:
             st.session_state.user = saved_user
             st.rerun()
@@ -332,7 +324,11 @@ if "user" not in st.session_state:
         u = st.text_input("Choisis ton pseudo", placeholder="Ex: SpeedDemon42")
         if st.button("▶ Entrer dans l'arène", use_container_width=True) and u.strip():
             with db() as conn:
-                conn.execute("INSERT OR IGNORE INTO users VALUES (:username)", {"username": u.strip()})
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING",
+                    (u.strip(),)
+                )
             st.session_state.user = u.strip()
             st.query_params["u"] = u.strip()
             st.markdown(f"""
@@ -384,9 +380,10 @@ if page == "👤 Athlètes":
             if submitted:
                 if fn.strip() and ln.strip():
                     with db() as conn:
-                        conn.execute(
-                            "INSERT INTO athletes VALUES (NULL, :fn, :ln, :age)",
-                            {"fn": fn.strip(), "ln": ln.strip(), "age": age}
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO athletes (first_name, last_name, age) VALUES (%s, %s, %s)",
+                            (fn.strip(), ln.strip(), age)
                         )
                     st.success(f"✅ {fn} {ln} ajouté(e) !")
                     st.rerun()
@@ -394,7 +391,6 @@ if page == "👤 Athlètes":
                     st.error("Prénom et nom requis.")
 
     st.divider()
-
     athletes = get_all_athletes()
 
     if not athletes:
@@ -407,7 +403,6 @@ if page == "👤 Athlètes":
                 col_info, col_btn = st.columns([5, 1])
                 with col_info:
                     st.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
-
                 with col_btn:
                     if st.button("🗑️", key=f"del_{a['id']}", help="Supprimer cet athlète"):
                         st.session_state[f"confirm_del_{a['id']}"] = True
@@ -417,18 +412,20 @@ if page == "👤 Athlètes":
                     cc1, cc2 = st.columns(2)
                     if cc1.button("✅ Confirmer", key=f"yes_{a['id']}"):
                         with db() as conn:
-                            conn.execute("PRAGMA foreign_keys = ON")
-                            conn.execute("DELETE FROM athletes WHERE id = :id", {"id": a['id']})
+                            cur = conn.cursor()
+                            cur.execute("DELETE FROM athletes WHERE id = %s", (a['id'],))
                         st.rerun()
                     if cc2.button("❌ Annuler", key=f"no_{a['id']}"):
                         st.session_state[f"confirm_del_{a['id']}"] = False
                         st.rerun()
 
                 with db() as conn:
-                    pbs = rows_to_dicts(conn.execute(
-                        "SELECT * FROM athlete_pbs WHERE athlete_id = :aid ORDER BY discipline",
-                        {"aid": a["id"]}
-                    ).fetchall())
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT * FROM athlete_pbs WHERE athlete_id = %s ORDER BY discipline",
+                        (a["id"],)
+                    )
+                    pbs = rows_to_dicts(cur.fetchall())
 
                 if pbs:
                     pb_cols = st.columns(min(len(pbs), 4))
@@ -459,22 +456,25 @@ if page == "👤 Athlètes":
 
                         if st.form_submit_button("💾 Sauvegarder"):
                             with db() as conn:
+                                cur = conn.cursor()
                                 for orig_discipline in to_delete:
-                                    conn.execute(
-                                        "DELETE FROM athlete_pbs WHERE athlete_id = :aid AND discipline = :disc",
-                                        {"aid": a["id"], "disc": orig_discipline}
+                                    cur.execute(
+                                        "DELETE FROM athlete_pbs WHERE athlete_id = %s AND discipline = %s",
+                                        (a["id"], orig_discipline)
                                     )
                                 for d, v, orig_d in inputs:
                                     if orig_d not in to_delete and d.strip():
-                                        conn.execute(
-                                            "INSERT OR REPLACE INTO athlete_pbs VALUES (:aid, :disc, :pb)",
-                                            {"aid": a["id"], "disc": d.strip(), "pb": v}
-                                        )
+                                        cur.execute("""
+                                            INSERT INTO athlete_pbs (athlete_id, discipline, pb)
+                                            VALUES (%s, %s, %s)
+                                            ON CONFLICT (athlete_id, discipline) DO UPDATE SET pb = EXCLUDED.pb
+                                        """, (a["id"], d.strip(), v))
                                 if new_d.strip():
-                                    conn.execute(
-                                        "INSERT OR REPLACE INTO athlete_pbs VALUES (:aid, :disc, :pb)",
-                                        {"aid": a["id"], "disc": new_d.strip(), "pb": new_v}
-                                    )
+                                    cur.execute("""
+                                        INSERT INTO athlete_pbs (athlete_id, discipline, pb)
+                                        VALUES (%s, %s, %s)
+                                        ON CONFLICT (athlete_id, discipline) DO UPDATE SET pb = EXCLUDED.pb
+                                    """, (a["id"], new_d.strip(), new_v))
                             st.session_state[f"show_pb_{a['id']}"] = False
                             st.success("PBs mis à jour !")
                             st.rerun()
@@ -505,31 +505,28 @@ elif page == "🏟️ Compétitions":
                 for s in selected:
                     aid = options[s]
                     with db() as conn:
-                        pbs = rows_to_dicts(conn.execute(
-                            "SELECT discipline FROM athlete_pbs WHERE athlete_id = :aid ORDER BY discipline",
-                            {"aid": aid}
-                        ).fetchall())
+                        cur = conn.cursor()
+                        cur.execute(
+                            "SELECT discipline FROM athlete_pbs WHERE athlete_id = %s ORDER BY discipline",
+                            (aid,)
+                        )
+                        pbs = rows_to_dicts(cur.fetchall())
                     disc_list = [pb["discipline"] for pb in pbs]
 
                     col_name, col_disc = st.columns([2, 3])
                     col_name.markdown(f"**{s}**")
                     if disc_list:
                         disc_list_with_other = disc_list + ["✏️ Autre..."]
-                        chosen = col_disc.selectbox(
-                            "Discipline", disc_list_with_other,
-                            key=f"disc_{aid}"
-                        )
+                        chosen = col_disc.selectbox("Discipline", disc_list_with_other, key=f"disc_{aid}")
                         if chosen == "✏️ Autre...":
                             athlete_disciplines[aid] = st.text_input(
-                                f"Discipline personnalisée pour {s}",
-                                key=f"disc_custom_{aid}"
+                                f"Discipline personnalisée pour {s}", key=f"disc_custom_{aid}"
                             )
                         else:
                             athlete_disciplines[aid] = chosen
                     else:
                         athlete_disciplines[aid] = col_disc.text_input(
-                            "Discipline (aucun PB enregistré)",
-                            key=f"disc_free_{aid}"
+                            "Discipline (aucun PB enregistré)", key=f"disc_free_{aid}"
                         )
 
             if st.button("🏟️ Créer la compétition") and name.strip() and selected:
@@ -540,17 +537,18 @@ elif page == "🏟️ Compétitions":
                     with db() as conn:
                         cur = conn.cursor()
                         cur.execute(
-                            "INSERT INTO competitions VALUES (NULL, :name, :date)",
-                            {"name": name.strip(), "date": date.strftime("%Y-%m-%d")}
+                            "INSERT INTO competitions (name, date) VALUES (%s, %s) RETURNING id",
+                            (name.strip(), date.strftime("%Y-%m-%d"))
                         )
-                        cid = cur.lastrowid
+                        cid = cur.fetchone()["id"]
                         for s in selected:
                             aid = options[s]
                             disc = athlete_disciplines[aid].strip()
-                            cur.execute(
-                                "INSERT OR IGNORE INTO competition_athletes (competition_id, athlete_id, discipline) VALUES (:cid, :aid, :disc)",
-                                {"cid": cid, "aid": aid, "disc": disc}
-                            )
+                            cur.execute("""
+                                INSERT INTO competition_athletes (competition_id, athlete_id, discipline)
+                                VALUES (%s, %s, %s)
+                                ON CONFLICT (competition_id, athlete_id) DO NOTHING
+                            """, (cid, aid, disc))
                     st.success(f"✅ Compétition **{name}** créée avec {len(selected)} athlète(s) !")
                     st.rerun()
 
@@ -563,13 +561,15 @@ elif page == "🏟️ Compétitions":
         st.markdown(f"**{len(comps)} compétition(s)**")
         for c in comps:
             with db() as conn:
-                ca_rows = rows_to_dicts(conn.execute("""
+                cur = conn.cursor()
+                cur.execute("""
                     SELECT a.first_name, a.last_name, ca.discipline
                     FROM competition_athletes ca
                     JOIN athletes a ON a.id = ca.athlete_id
-                    WHERE ca.competition_id = :cid
+                    WHERE ca.competition_id = %s
                     ORDER BY a.last_name
-                """, {"cid": c["id"]}).fetchall())
+                """, (c["id"],))
+                ca_rows = rows_to_dicts(cur.fetchall())
 
             col1, col2 = st.columns([5, 1])
             col1.markdown(f"**{c['name']}** — {fmt(c['date'])}  `{len(ca_rows)} athlète(s)`")
@@ -588,8 +588,8 @@ elif page == "🏟️ Compétitions":
                 cc1, cc2 = st.columns(2)
                 if cc1.button("✅ Confirmer", key=f"yescomp_{c['id']}"):
                     with db() as conn:
-                        conn.execute("PRAGMA foreign_keys = ON")
-                        conn.execute("DELETE FROM competitions WHERE id = :id", {"id": c["id"]})
+                        cur = conn.cursor()
+                        cur.execute("DELETE FROM competitions WHERE id = %s", (c["id"],))
                     st.rerun()
                 if cc2.button("❌ Annuler", key=f"nocomp_{c['id']}"):
                     st.session_state[f"confirm_delcomp_{c['id']}"] = False
@@ -610,8 +610,8 @@ elif page == "🎯 Pronostics":
         for c in comps:
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
                 with db() as conn:
-                    # FIX : paramètres nommés — :cid utilisé 2 fois sans ambiguïté
-                    ath = rows_to_dicts(conn.execute("""
+                    cur = conn.cursor()
+                    cur.execute("""
                         SELECT a.id, a.first_name, a.last_name,
                                ca.discipline,
                                p.prediction,
@@ -620,13 +620,14 @@ elif page == "🎯 Pronostics":
                         JOIN athletes a ON a.id = ca.athlete_id
                         LEFT JOIN predictions p
                             ON p.athlete_id = a.id
-                            AND p.competition_id = :cid
-                            AND p.username = :user
+                            AND p.competition_id = %s
+                            AND p.username = %s
                         LEFT JOIN athlete_pbs pb
                             ON pb.athlete_id = a.id
                             AND pb.discipline = ca.discipline
-                        WHERE ca.competition_id = :cid
-                    """, {"cid": c["id"], "user": current_user}).fetchall())
+                        WHERE ca.competition_id = %s
+                    """, (c["id"], current_user, c["id"]))
+                    ath = rows_to_dicts(cur.fetchall())
 
                 if not ath:
                     st.warning("Aucun athlète dans cette compétition.")
@@ -658,11 +659,14 @@ elif page == "🎯 Pronostics":
 
                     if st.form_submit_button("💾 Sauvegarder tous mes pronostics", use_container_width=True):
                         with db() as conn:
+                            cur = conn.cursor()
                             for aid, pred in predictions.items():
-                                conn.execute(
-                                    "INSERT OR REPLACE INTO predictions VALUES (:user, :cid, :aid, :pred)",
-                                    {"user": current_user, "cid": c["id"], "aid": aid, "pred": pred}
-                                )
+                                cur.execute("""
+                                    INSERT INTO predictions (username, competition_id, athlete_id, prediction)
+                                    VALUES (%s, %s, %s, %s)
+                                    ON CONFLICT (username, competition_id, athlete_id)
+                                    DO UPDATE SET prediction = EXCLUDED.prediction
+                                """, (current_user, c["id"], aid, pred))
                         st.success("✅ Pronostics enregistrés !")
                         st.rerun()
 
@@ -681,17 +685,18 @@ elif page == "📊 Résultats":
         for c in comps:
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
                 with db() as conn:
-                    # FIX : paramètres nommés — :cid utilisé 2 fois sans ambiguïté
-                    ath = rows_to_dicts(conn.execute("""
+                    cur = conn.cursor()
+                    cur.execute("""
                         SELECT a.id, a.first_name, a.last_name, ca.discipline, r.result
                         FROM competition_athletes ca
                         JOIN athletes a ON a.id = ca.athlete_id
                         LEFT JOIN results r
                             ON r.athlete_id = a.id
-                            AND r.competition_id = :cid
-                        WHERE ca.competition_id = :cid
+                            AND r.competition_id = %s
+                        WHERE ca.competition_id = %s
                         ORDER BY a.last_name
-                    """, {"cid": c["id"]}).fetchall())
+                    """, (c["id"], c["id"]))
+                    ath = rows_to_dicts(cur.fetchall())
 
                 if not ath:
                     st.warning("Aucun athlète dans cette compétition.")
@@ -707,21 +712,21 @@ elif page == "📊 Résultats":
                         if a["result"] is not None:
                             label += f"  ✅ (actuel: {a['result']})"
                         results[a["id"]] = st.number_input(
-                            label,
-                            value=val,
-                            min_value=0.0,
-                            step=0.01,
+                            label, value=val, min_value=0.0, step=0.01,
                             key=f"res_{c['id']}_{a['id']}"
                         )
 
                     if st.form_submit_button("💾 Enregistrer les résultats", use_container_width=True):
                         with db() as conn:
+                            cur = conn.cursor()
                             for aid, res in results.items():
                                 if res > 0:
-                                    conn.execute(
-                                        "INSERT OR REPLACE INTO results VALUES (:cid, :aid, :res)",
-                                        {"cid": c["id"], "aid": aid, "res": res}
-                                    )
+                                    cur.execute("""
+                                        INSERT INTO results (competition_id, athlete_id, result)
+                                        VALUES (%s, %s, %s)
+                                        ON CONFLICT (competition_id, athlete_id)
+                                        DO UPDATE SET result = EXCLUDED.result
+                                    """, (c["id"], aid, res))
                         st.success("✅ Résultats enregistrés !")
                         st.rerun()
 
@@ -739,7 +744,8 @@ elif page == "📜 Historique":
         for c in comps:
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
                 with db() as conn:
-                    rows = rows_to_dicts(conn.execute("""
+                    cur = conn.cursor()
+                    cur.execute("""
                         SELECT p.username, p.prediction, r.result,
                                a.first_name, a.last_name, ca.discipline
                         FROM predictions p
@@ -750,9 +756,10 @@ elif page == "📜 Historique":
                         JOIN competition_athletes ca
                             ON ca.competition_id = p.competition_id
                             AND ca.athlete_id = p.athlete_id
-                        WHERE p.competition_id = :cid
+                        WHERE p.competition_id = %s
                         ORDER BY a.last_name, p.username
-                    """, {"cid": c["id"]}).fetchall())
+                    """, (c["id"],))
+                    rows = rows_to_dicts(cur.fetchall())
 
                 if not rows:
                     st.info("Aucun résultat disponible pour cette compétition.")
@@ -780,24 +787,30 @@ elif page == "📜 Historique":
 # =========================
 # CLASSEMENT
 # =========================
-elif page == "🏆 Classement Général":
+elif page == "🏆 Classement":
     st.title("🏆 Classement Général")
 
     with db() as conn:
-        all_users = rows_to_dicts(conn.execute("SELECT username FROM users").fetchall())
-        comps_with_results = rows_to_dicts(conn.execute("""
+        cur = conn.cursor()
+        cur.execute("SELECT username FROM users")
+        all_users = rows_to_dicts(cur.fetchall())
+
+        cur.execute("""
             SELECT DISTINCT c.id, c.name, c.date
             FROM competitions c
             JOIN results r ON r.competition_id = c.id
             ORDER BY c.date ASC, c.id ASC
-        """).fetchall())
-        all_scored_rows = rows_to_dicts(conn.execute("""
+        """)
+        comps_with_results = rows_to_dicts(cur.fetchall())
+
+        cur.execute("""
             SELECT p.username, p.prediction, r.result, p.competition_id
             FROM predictions p
             JOIN results r
                 ON p.competition_id = r.competition_id
                 AND p.athlete_id = r.athlete_id
-        """).fetchall())
+        """)
+        all_scored_rows = rows_to_dicts(cur.fetchall())
 
     usernames = [u_row["username"] for u_row in all_users]
 
@@ -817,7 +830,6 @@ elif page == "🏆 Classement Général":
         return ranks
 
     scores_now = compute_scores(all_scored_rows)
-    ranks_now = ranked(scores_now)
     sorted_scores = sorted(scores_now.items(), key=lambda x: -x[1])
 
     last_comp = comps_with_results[-1] if comps_with_results else None
@@ -845,28 +857,20 @@ elif page == "🏆 Classement Général":
 
         if i == 1:
             bg = "linear-gradient(135deg, #F9D423 0%, #F7971E 100%)"
-            border = "#E6A817"
-            text_color = "#3d2000"
-            rank_label = "🥇"
+            border = "#E6A817"; text_color = "#3d2000"; rank_label = "🥇"
         elif i == 2:
             bg = "linear-gradient(135deg, #e0e0e0 0%, #9e9e9e 100%)"
-            border = "#757575"
-            text_color = "#1a1a1a"
-            rank_label = "🥈"
+            border = "#757575"; text_color = "#1a1a1a"; rank_label = "🥈"
         elif i == 3:
             bg = "linear-gradient(135deg, #cd9b5a 0%, #8B5e2a 100%)"
-            border = "#7a4f22"
-            text_color = "#fff0e0"
-            rank_label = "🥉"
+            border = "#7a4f22"; text_color = "#fff0e0"; rank_label = "🥉"
         else:
             bg = "#1e293b"
             border = "#FFD700" if is_me else "#334155"
-            text_color = "#f1f5f9"
-            rank_label = f"#{i}"
+            text_color = "#f1f5f9"; rank_label = f"#{i}"
 
         if is_me and i > 3:
-            bg = "#2d3f5e"
-            border = "#FFD700"
+            bg = "#2d3f5e"; border = "#FFD700"
 
         me_badge = f"<span style='font-size:0.72em; color:{'#5a3a00' if i==1 else ('#444' if i==2 else ('#c8a07a' if i==3 else '#94a3b8'))}; margin-left:6px;'>(vous)</span>" if is_me else ""
 
@@ -874,27 +878,27 @@ elif page == "🏆 Classement Général":
             prev_rank = ranks_before.get(username, len(usernames))
             delta = prev_rank - i
             if delta > 0:
-                delta_html = f"<span style='color:#22c55e; font-size:0.88em; font-weight:700; background:rgba(34,197,94,0.15); padding:1px 6px; border-radius:10px;'>▲ +{delta}</span>"
+                delta_html = f"<span style='color:#22c55e;font-size:0.88em;font-weight:700;background:rgba(34,197,94,0.15);padding:1px 6px;border-radius:10px;'>▲ +{delta}</span>"
             elif delta < 0:
-                delta_html = f"<span style='color:#ef4444; font-size:0.88em; font-weight:700; background:rgba(239,68,68,0.15); padding:1px 6px; border-radius:10px;'>▼ {delta}</span>"
+                delta_html = f"<span style='color:#ef4444;font-size:0.88em;font-weight:700;background:rgba(239,68,68,0.15);padding:1px 6px;border-radius:10px;'>▼ {delta}</span>"
             else:
-                delta_html = "<span style='color:#94a3b8; font-size:0.88em; padding:1px 6px;'>—</span>"
+                delta_html = "<span style='color:#94a3b8;font-size:0.88em;padding:1px 6px;'>—</span>"
         else:
             delta_html = ""
 
         pts_color = "#3d2000" if i == 1 else ("#1a1a1a" if i == 2 else ("#fff0e0" if i == 3 else "#e94560"))
 
         st.markdown(f"""
-        <div style="background:{bg}; border:2px solid {border}; border-radius:12px;
-                    padding:14px 22px; margin-bottom:10px; display:flex;
-                    justify-content:space-between; align-items:center;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.18);">
-            <span style="font-size:1.18em; color:{text_color}; display:flex; align-items:center; gap:10px;">
+        <div style="background:{bg};border:2px solid {border};border-radius:12px;
+                    padding:14px 22px;margin-bottom:10px;display:flex;
+                    justify-content:space-between;align-items:center;
+                    box-shadow:0 2px 8px rgba(0,0,0,0.18);">
+            <span style="font-size:1.18em;color:{text_color};display:flex;align-items:center;gap:10px;">
                 <span style="font-size:1.3em;">{rank_label}</span>
                 <strong>{username}</strong>{me_badge}
                 {delta_html}
             </span>
-            <span style="font-size:1.25em; font-weight:800; color:{pts_color};">{total_score} pts</span>
+            <span style="font-size:1.25em;font-weight:800;color:{pts_color};">{total_score} pts</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -902,19 +906,22 @@ elif page == "🏆 Classement Général":
         st.divider()
         with st.expander(f"📋 Détail « {last_comp['name']} » — {fmt(last_comp['date'])}"):
             with db() as conn:
-                last_rows = rows_to_dicts(conn.execute("""
-                    SELECT p.username, SUM(CASE
-                        WHEN ABS(p.prediction - r.result) = 0 THEN 300
-                        ELSE MAX(0, CAST(150 - ABS(p.prediction - r.result) * 4 AS INTEGER))
-                    END) as pts
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT p.username,
+                           SUM(CASE
+                               WHEN ABS(p.prediction - r.result) = 0 THEN 300
+                               ELSE GREATEST(0, FLOOR(150 - ABS(p.prediction - r.result) * 4)::int)
+                           END) as pts
                     FROM predictions p
                     JOIN results r
                         ON p.competition_id = r.competition_id
                         AND p.athlete_id = r.athlete_id
-                    WHERE p.competition_id = :cid
+                    WHERE p.competition_id = %s
                     GROUP BY p.username
                     ORDER BY pts DESC
-                """, {"cid": last_comp["id"]}).fetchall())
+                """, (last_comp["id"],))
+                last_rows = rows_to_dicts(cur.fetchall())
 
             if last_rows:
                 for j, row in enumerate(last_rows, 1):
