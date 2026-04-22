@@ -888,27 +888,28 @@ elif page == "🏆 Classement":
 
         pts_color = "#3d2000" if i == 1 else ("#1a1a1a" if i == 2 else ("#fff0e0" if i == 3 else "#e94560"))
 
-        html_card = f"""
-        <div style="background:{bg};border:2px solid {border};border-radius:12px;
-                    padding:14px 22px;margin-bottom:10px;display:flex;
-                    justify-content:space-between;align-items:center;
-                    box-shadow:0 2px 8px rgba(0,0,0,0.18);">
+        st.markdown(
+            f"""
+            <div style="background:{bg};border:2px solid {border};border-radius:12px;
+                        padding:14px 22px;margin-bottom:10px;display:flex;
+                        justify-content:space-between;align-items:center;
+                        box-shadow:0 2px 8px rgba(0,0,0,0.18);">
         
-            <div style="display:flex;align-items:center;gap:10px;color:{text_color};font-size:1.18em;">
-                <span style="font-size:1.3em;">{rank_label}</span>
-                <strong>{username}</strong>
-                {me_badge}
-                {delta_html}
+                <div style="display:flex;align-items:center;gap:10px;color:{text_color};font-size:1.18em;">
+                    <span style="font-size:1.3em;">{rank_label}</span>
+                    <strong>{username}</strong>
+                    {me_badge if me_badge else ""}
+                    {delta_html if delta_html else ""}
+                </div>
+        
+                <div style="font-size:1.25em;font-weight:800;color:{pts_color};">
+                    {total_score} pts
+                </div>
+        
             </div>
-        
-            <div style="font-size:1.25em;font-weight:800;color:{pts_color};">
-                {total_score} pts
-            </div>
-        
-        </div>
-        """
-        
-        st.markdown(html_card, unsafe_allow_html=True)
+            """,
+            unsafe_allow_html=True
+        )
 
     if last_comp:
         st.divider()
