@@ -140,7 +140,7 @@ def init_db():
 
         cols = {
             row[1] for row in
-            conn.execute("PRAGMA table_info(competition_athletes)").fetchall()
+            rows_to_dicts(conn.execute("PRAGMA table_info(competition_athletes)").fetchall())
         }
 
         if "competition_id" not in cols:
@@ -189,13 +189,16 @@ def score(p, r):
         return 300
     return max(0, int(150 - d * 4))
 
+def rows_to_dicts(rows):
+    return [dict(row) for row in rows]
+
 def get_all_athletes():
     with db() as conn:
-        return conn.execute("SELECT * FROM athletes ORDER BY last_name, first_name").fetchall()
+        return rows_to_dicts(conn.execute("SELECT * FROM athletes ORDER BY last_name, first_name").fetchall())
 
 def get_all_competitions():
     with db() as conn:
-        return conn.execute("SELECT * FROM competitions ORDER BY date DESC").fetchall()
+        return rows_to_dicts(conn.execute("SELECT * FROM competitions ORDER BY date DESC").fetchall())
 
 # =========================
 # AUTH + PERSISTANCE SESSION
@@ -415,10 +418,10 @@ if page == "👤 Athlètes":
                         st.rerun()
 
                 with db() as conn:
-                    pbs = conn.execute(
+                    pbs = rows_to_dicts(conn.execute(
                         "SELECT * FROM athlete_pbs WHERE athlete_id = :aid ORDER BY discipline",
                         {"aid": a["id"]}
-                    ).fetchall()
+                    ).fetchall())
 
                 if pbs:
                     pb_cols = st.columns(min(len(pbs), 4))
@@ -495,10 +498,10 @@ elif page == "🏟️ Compétitions":
                 for s in selected:
                     aid = options[s]
                     with db() as conn:
-                        pbs = conn.execute(
+                        pbs = rows_to_dicts(conn.execute(
                             "SELECT discipline FROM athlete_pbs WHERE athlete_id = :aid ORDER BY discipline",
                             {"aid": aid}
-                        ).fetchall()
+                        ).fetchall())
                     disc_list = [pb["discipline"] for pb in pbs]
 
                     col_name, col_disc = st.columns([2, 3])
@@ -553,13 +556,13 @@ elif page == "🏟️ Compétitions":
         st.markdown(f"**{len(comps)} compétition(s)**")
         for c in comps:
             with db() as conn:
-                ca_rows = conn.execute("""
+                ca_rows = rows_to_dicts(conn.execute("""
                     SELECT a.first_name, a.last_name, ca.discipline
                     FROM competition_athletes ca
                     JOIN athletes a ON a.id = ca.athlete_id
                     WHERE ca.competition_id = :cid
                     ORDER BY a.last_name
-                """, {"cid": c["id"]}).fetchall()
+                """, {"cid": c["id"]}).fetchall())
 
             col1, col2 = st.columns([5, 1])
             col1.markdown(f"**{c['name']}** — {fmt(c['date'])}  `{len(ca_rows)} athlète(s)`")
@@ -601,7 +604,7 @@ elif page == "🎯 Pronostics":
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
                 with db() as conn:
                     # FIX : paramètres nommés — :cid utilisé 2 fois sans ambiguïté
-                    ath = conn.execute("""
+                    ath = rows_to_dicts(conn.execute("""
                         SELECT a.id, a.first_name, a.last_name,
                                ca.discipline,
                                p.prediction,
@@ -616,7 +619,7 @@ elif page == "🎯 Pronostics":
                             ON pb.athlete_id = a.id
                             AND pb.discipline = ca.discipline
                         WHERE ca.competition_id = :cid
-                    """, {"cid": c["id"], "user": current_user}).fetchall()
+                    """, {"cid": c["id"], "user": current_user}).fetchall())
 
                 if not ath:
                     st.warning("Aucun athlète dans cette compétition.")
@@ -672,7 +675,7 @@ elif page == "📊 Résultats":
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
                 with db() as conn:
                     # FIX : paramètres nommés — :cid utilisé 2 fois sans ambiguïté
-                    ath = conn.execute("""
+                    ath = rows_to_dicts(conn.execute("""
                         SELECT a.id, a.first_name, a.last_name, ca.discipline, r.result
                         FROM competition_athletes ca
                         JOIN athletes a ON a.id = ca.athlete_id
@@ -681,7 +684,7 @@ elif page == "📊 Résultats":
                             AND r.competition_id = :cid
                         WHERE ca.competition_id = :cid
                         ORDER BY a.last_name
-                    """, {"cid": c["id"]}).fetchall()
+                    """, {"cid": c["id"]}).fetchall())
 
                 if not ath:
                     st.warning("Aucun athlète dans cette compétition.")
@@ -729,7 +732,7 @@ elif page == "📜 Historique":
         for c in comps:
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
                 with db() as conn:
-                    rows = conn.execute("""
+                    rows = rows_to_dicts(conn.execute("""
                         SELECT p.username, p.prediction, r.result,
                                a.first_name, a.last_name, ca.discipline
                         FROM predictions p
@@ -742,7 +745,7 @@ elif page == "📜 Historique":
                             AND ca.athlete_id = p.athlete_id
                         WHERE p.competition_id = :cid
                         ORDER BY a.last_name, p.username
-                    """, {"cid": c["id"]}).fetchall()
+                    """, {"cid": c["id"]}).fetchall())
 
                 if not rows:
                     st.info("Aucun résultat disponible pour cette compétition.")
@@ -774,22 +777,20 @@ elif page == "🏆 Classement Général":
     st.title("🏆 Classement Général")
 
     with db() as conn:
-        all_users = conn.execute("SELECT username FROM users").fetchall()
-
-        comps_with_results = conn.execute("""
+        all_users = rows_to_dicts(conn.execute("SELECT username FROM users").fetchall())
+        comps_with_results = rows_to_dicts(conn.execute("""
             SELECT DISTINCT c.id, c.name, c.date
             FROM competitions c
             JOIN results r ON r.competition_id = c.id
             ORDER BY c.date ASC, c.id ASC
-        """).fetchall()
-
-        all_scored_rows = conn.execute("""
+        """).fetchall())
+        all_scored_rows = rows_to_dicts(conn.execute("""
             SELECT p.username, p.prediction, r.result, p.competition_id
             FROM predictions p
             JOIN results r
                 ON p.competition_id = r.competition_id
                 AND p.athlete_id = r.athlete_id
-        """).fetchall()
+        """).fetchall())
 
     usernames = [u_row["username"] for u_row in all_users]
 
@@ -894,7 +895,7 @@ elif page == "🏆 Classement Général":
         st.divider()
         with st.expander(f"📋 Détail « {last_comp['name']} » — {fmt(last_comp['date'])}"):
             with db() as conn:
-                last_rows = conn.execute("""
+                last_rows = rows_to_dicts(conn.execute("""
                     SELECT p.username, SUM(CASE
                         WHEN ABS(p.prediction - r.result) = 0 THEN 300
                         ELSE MAX(0, CAST(150 - ABS(p.prediction - r.result) * 4 AS INTEGER))
@@ -906,7 +907,7 @@ elif page == "🏆 Classement Général":
                     WHERE p.competition_id = :cid
                     GROUP BY p.username
                     ORDER BY pts DESC
-                """, {"cid": last_comp["id"]}).fetchall()
+                """, {"cid": last_comp["id"]}).fetchall())
 
             if last_rows:
                 for j, row in enumerate(last_rows, 1):
