@@ -4,7 +4,13 @@ import psycopg2.extras
 import psycopg2.pool
 from datetime import datetime
 from contextlib import contextmanager
-
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS athletes CASCADE;
+DROP TABLE IF EXISTS athlete_pbs CASCADE;
+DROP TABLE IF EXISTS competitions CASCADE;
+DROP TABLE IF EXISTS competition_athletes CASCADE;
+DROP TABLE IF EXISTS predictions CASCADE;
+DROP TABLE IF EXISTS results CASCADE;
 st.set_page_config(page_title="Athlé Bet", page_icon="🏃", layout="wide")
 
 st.markdown("""
