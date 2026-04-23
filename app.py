@@ -230,12 +230,37 @@ if "user" not in st.session_state:
 </script>
 """, unsafe_allow_html=True)
 
-    # ─────────────────────────────────────────────
-    # INSTALL BANNER — smart, platform-aware
-    # ─────────────────────────────────────────────
-ua = st.session_state.get("ua", "")  # optionnel si tu veux détecter côté Python
+if "user" not in st.session_state:
+    saved_user = st.query_params.get("u", "")
 
-st.markdown("""
+    if saved_user:
+        with db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM users WHERE username = %s", (saved_user,))
+            if cur.fetchone():
+                st.session_state.user = saved_user
+                st.rerun()
+
+    # Auto-login localStorage
+    st.markdown("""
+<script>
+(function () {
+    try {
+        var stored = localStorage.getItem('athle_bet_user');
+        if (!stored) return;
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('u') === stored) return;
+        params.set('u', stored);
+        window.location.search = params.toString();
+    } catch (e) {}
+})();
+</script>
+""", unsafe_allow_html=True)
+
+    # =========================
+    # INSTALL BANNER (FIXED)
+    # =========================
+    st.markdown("""
 <style>
 .install-banner {
     background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
@@ -244,7 +269,7 @@ st.markdown("""
     padding: 18px;
     margin-bottom: 20px;
     color: #e2e8f0;
-    font-family: DM Sans;
+    font-family: 'DM Sans', sans-serif;
 }
 
 .install-title {
@@ -271,10 +296,7 @@ st.markdown("""
     color: #a5b4fc;
 }
 </style>
-""", unsafe_allow_html=True)
 
-
-st.markdown("""
 <div class="install-banner">
     <div class="install-title">📲 Installer Athlé Bet</div>
     <div class="install-sub">Ajoute l’app à ton écran d’accueil pour un accès rapide</div>
@@ -296,7 +318,11 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-/* ── Login styles ── */
+    # =========================
+    # LOGIN CARD
+    # =========================
+    st.markdown("""
+<style>
 .login-container {
     max-width: 520px;
     margin: 40px auto;
@@ -306,96 +332,39 @@ st.markdown("""
     border-radius: 18px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.4);
 }
-.login-title { text-align:center; font-size:3em; margin-bottom: 0; color: #f8fafc; }
-.login-subtitle { text-align:center; color:#94a3b8; margin-top: 8px; margin-bottom: 24px; }
+
+.login-title {
+    text-align:center;
+    font-size:3em;
+    margin-bottom: 0;
+    color: #f8fafc;
+}
+
+.login-subtitle {
+    text-align:center;
+    color:#94a3b8;
+    margin-top: 8px;
+    margin-bottom: 24px;
+}
+
 div.stButton > button {
     background: linear-gradient(135deg, #e94560, #ff2e63);
-    color: white; border: none; border-radius: 12px;
-    padding: 12px 16px; font-size: 1em; font-weight: 600; transition: 0.2s ease;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 1em;
+    font-weight: 600;
+    transition: 0.2s ease;
 }
-div.stButton > button:hover { transform: translateY(-1px); opacity: 0.95; }
+
+div.stButton > button:hover {
+    transform: translateY(-1px);
+    opacity: 0.95;
+}
 </style>
 """, unsafe_allow_html=True)
 
-    # ── Install banner with JS-driven platform detection ──
-    st.markdown("""
-<div class="install-banner" id="install-banner">
-    <div class="install-banner-top">
-        <span class="install-icon">📲</span>
-        <div>
-            <p class="install-heading">Installer Athlé Bet sur votre appareil</p>
-            <p class="install-sub">Accès rapide depuis l'écran d'accueil · Pas de navigateur</p>
-        </div>
-    </div>
-
-    <div class="platform-tabs" id="ptabs">
-        <span class="platform-tab" id="tab-ios" onclick="showPlatform('ios')">🍎 iPhone / iPad</span>
-        <span class="platform-tab" id="tab-android" onclick="showPlatform('android')">🤖 Android</span>
-        <span class="platform-tab" id="tab-desktop" onclick="showPlatform('desktop')">💻 PC / Mac</span>
-    </div>
-
-    <!-- iOS -->
-    <div class="install-steps" id="steps-ios" style="display:none">
-        <div class="install-step"><span class="install-step-num">⬆️</span><div class="install-step-text"><strong>1. Partager</strong>Bouton en bas de Safari</div></div>
-        <div class="install-step"><span class="install-step-num">🏠</span><div class="install-step-text"><strong>2. "Sur l'écran d'accueil"</strong>Défiler dans le menu</div></div>
-        <div class="install-step"><span class="install-step-num">✅</span><div class="install-step-text"><strong>3. Ajouter</strong>Confirmer en haut à droite</div></div>
-    </div>
-
-    <!-- Android -->
-    <div class="install-steps" id="steps-android" style="display:none">
-        <div class="install-step"><span class="install-step-num">⋮</span><div class="install-step-text"><strong>1. Menu Chrome</strong>3 points en haut à droite</div></div>
-        <div class="install-step"><span class="install-step-num">📌</span><div class="install-step-text"><strong>2. "Ajouter à l'écran d'accueil"</strong>Dans la liste</div></div>
-        <div class="install-step"><span class="install-step-num">✅</span><div class="install-step-text"><strong>3. Installer</strong>Confirmer la popup</div></div>
-    </div>
-
-    <!-- Desktop -->
-    <div class="install-steps" id="steps-desktop" style="display:none">
-        <div class="install-step"><span class="install-step-num">🔲</span><div class="install-step-text"><strong>1. Icône d'install</strong>Dans la barre d'adresse</div></div>
-        <div class="install-step"><span class="install-step-num">📥</span><div class="install-step-text"><strong>2. "Installer"</strong>Cliquer sur le bouton</div></div>
-        <div class="install-step"><span class="install-step-num">🚀</span><div class="install-step-text"><strong>3. Prêt !</strong>App dans vos programmes</div></div>
-    </div>
-</div>
-
-<script>
-function showPlatform(p) {
-    ['ios','android','desktop'].forEach(function(id) {
-        document.getElementById('steps-' + id).style.display = (id === p) ? 'grid' : 'none';
-        var tab = document.getElementById('tab-' + id);
-        tab.classList.toggle('active', id === p);
-    });
-}
-
-// Auto-detect platform on load
-(function() {
-    var ua = navigator.userAgent || '';
-    var platform = 'desktop';
-    if (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) platform = 'ios';
-    else if (/Android/.test(ua)) platform = 'android';
-    showPlatform(platform);
-
-    // PWA install prompt for Android/Desktop Chrome
-    window.addEventListener('beforeinstallprompt', function(e) {
-        e.preventDefault();
-        window._deferredInstall = e;
-        var banner = document.getElementById('install-banner');
-        if (banner) {
-            var btn = document.createElement('button');
-            btn.textContent = '⚡ Installer maintenant';
-            btn.style.cssText = 'margin-top:14px;width:100%;padding:11px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;border:none;border-radius:10px;font-size:0.95em;font-weight:700;cursor:pointer;';
-            btn.onclick = function() {
-                window._deferredInstall.prompt();
-                window._deferredInstall.userChoice.then(function(r) {
-                    if (r.outcome === 'accepted') banner.style.display = 'none';
-                });
-            };
-            banner.appendChild(btn);
-        }
-    });
-})();
-</script>
-""", unsafe_allow_html=True)
-
-    # ── Login card ──
     st.markdown("<div class='login-container'>", unsafe_allow_html=True)
     st.markdown("<h1 class='login-title'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
     st.markdown("<p class='login-subtitle'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
@@ -409,12 +378,15 @@ function showPlatform(p) {
                 "INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING",
                 (u.strip(),)
             )
+
         st.session_state.user = u.strip()
         st.query_params["u"] = u.strip()
+
         st.markdown(
             f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
             unsafe_allow_html=True
         )
+
         st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
