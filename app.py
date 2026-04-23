@@ -19,7 +19,6 @@ section[data-testid="stSidebar"] * { color: white !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# OPT 1 — Pool de connexions persistant (cache_resource = 1 seul pool pour tout le serveur)
 @st.cache_resource
 def get_pool():
     return psycopg2.pool.ThreadedConnectionPool(
@@ -41,7 +40,6 @@ def db():
     finally:
         pool.putconn(conn)
 
-# OPT 2 — init_db une seule fois par session (pas à chaque changement de page)
 def init_db():
     with db() as conn:
         cur = conn.cursor()
@@ -78,7 +76,6 @@ def rows_to_dicts(rows):
 def invalidate_cache():
     st.cache_data.clear()
 
-# OPT 3 — Données cachées (ttl=30s) : 0 requête DB entre deux reruns
 @st.cache_data(ttl=30)
 def get_all_athletes():
     with db() as conn:
@@ -93,7 +90,6 @@ def get_all_competitions():
         cur.execute("SELECT * FROM competitions ORDER BY date DESC")
         return rows_to_dicts(cur.fetchall())
 
-# OPT 4 — Requêtes groupées : 1 requête pour TOUS les PBs / athlètes / historique
 @st.cache_data(ttl=30)
 def get_all_pbs():
     with db() as conn:
@@ -172,6 +168,7 @@ if "user" not in st.session_state:
                 st.session_state.user = saved_user
                 st.rerun()
 
+    # Auto-login depuis localStorage
     st.markdown("""
 <script>
 (function() {
@@ -185,47 +182,225 @@ if "user" not in st.session_state:
 </script>
 """, unsafe_allow_html=True)
 
+    # ── PWA INSTALL BANNER (affiché sur la page de login) ──────────────────
     st.markdown("""
 <style>
-#pwa-popup { display:none; position:fixed; bottom:28px; left:50%; transform:translateX(-50%);
-    background:#1e293b; color:#f1f5f9; border:1.5px solid #e94560; border-radius:16px;
-    padding:18px 24px; z-index:9999; box-shadow:0 8px 32px rgba(0,0,0,0.4);
-    max-width:370px; width:90vw; font-family:'DM Sans',sans-serif; animation:slideUp 0.4s ease; }
-@keyframes slideUp { from{opacity:0;transform:translateX(-50%) translateY(30px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
-#pwa-popup .pwa-title { font-weight:700; font-size:1.05em; margin-bottom:6px; display:flex; align-items:center; gap:8px; }
-#pwa-popup .pwa-desc  { font-size:0.88em; color:#94a3b8; margin-bottom:14px; line-height:1.4; }
-#pwa-popup .pwa-steps { font-size:0.83em; color:#cbd5e1; margin-bottom:14px; line-height:1.7; }
-#pwa-popup .pwa-btn-row { display:flex; gap:10px; justify-content:flex-end; }
-#pwa-popup button { border:none; border-radius:8px; padding:7px 16px; font-size:0.88em; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
-#pwa-install-btn { background:#e94560; color:white; }
-#pwa-dismiss-btn { background:#334155; color:#94a3b8; }
+/* ── Banner principal ── */
+#pwa-banner {
+    display: none;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border: 1.5px solid #e94560;
+    border-radius: 16px;
+    padding: 20px 22px 18px 22px;
+    margin: 0 auto 24px auto;
+    max-width: 480px;
+    font-family: 'DM Sans', sans-serif;
+    color: #f1f5f9;
+    animation: fadeInDown 0.4s ease;
+}
+@keyframes fadeInDown {
+    from { opacity: 0; transform: translateY(-16px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── En-tête ── */
+.pwa-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+.pwa-app-icon {
+    width: 52px; height: 52px;
+    background: #e94560;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px;
+    flex-shrink: 0;
+}
+.pwa-title-block {}
+.pwa-title { font-weight: 700; font-size: 1.1em; margin: 0 0 2px 0; }
+.pwa-subtitle { font-size: 0.82em; color: #94a3b8; margin: 0; }
+
+/* ── Étapes iOS ── */
+.pwa-steps {
+    background: rgba(255,255,255,0.05);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    font-size: 0.85em;
+    line-height: 1.8;
+    color: #cbd5e1;
+}
+.pwa-steps span { color: #f1f5f9; font-weight: 600; }
+
+/* ── Boutons ── */
+.pwa-btn-row {
+    display: flex; gap: 10px; justify-content: flex-end;
+}
+.pwa-btn {
+    border: none; border-radius: 8px;
+    padding: 10px 20px; font-size: 0.9em; font-weight: 600;
+    cursor: pointer; font-family: 'DM Sans', sans-serif;
+    transition: opacity 0.15s;
+    min-height: 40px;
+}
+.pwa-btn:active { opacity: 0.8; }
+#pwa-install-btn { background: #e94560; color: white; }
+#pwa-dismiss-btn { background: #1e293b; color: #64748b; border: 1px solid #334155; }
+
+/* ── Badge "Déjà installé" ── */
+#pwa-installed-badge {
+    display: none;
+    background: rgba(34,197,94,0.12);
+    border: 1px solid rgba(34,197,94,0.3);
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 0.85em;
+    color: #86efac;
+    text-align: center;
+    margin: 0 auto 20px auto;
+    max-width: 480px;
+}
 </style>
-<div id="pwa-popup">
-    <div class="pwa-title">📲 Installer Athlé Bet</div>
-    <div class="pwa-desc">Ajoutez l'app sur votre écran d'accueil pour y accéder comme une vraie application mobile.</div>
-    <div class="pwa-steps" id="pwa-steps-text"></div>
+
+<!-- Badge "déjà installé en PWA" -->
+<div id="pwa-installed-badge">
+    ✅ App déjà installée sur cet appareil
+</div>
+
+<!-- Bannière d'installation -->
+<div id="pwa-banner">
+    <div class="pwa-header">
+        <div class="pwa-app-icon">🏃</div>
+        <div class="pwa-title-block">
+            <div class="pwa-title">Installer Athlé Bet</div>
+            <div class="pwa-subtitle" id="pwa-platform-label">Disponible sur cet appareil</div>
+        </div>
+    </div>
+    <div class="pwa-steps" id="pwa-steps-text" style="display:none;"></div>
     <div class="pwa-btn-row">
-        <button id="pwa-dismiss-btn" onclick="dismissPwa()">Plus tard</button>
-        <button id="pwa-install-btn" onclick="triggerInstall()">Installer</button>
+        <button class="pwa-btn" id="pwa-dismiss-btn" onclick="dismissPwa()">Plus tard</button>
+        <button class="pwa-btn" id="pwa-install-btn" onclick="triggerInstall()">📲 Installer</button>
     </div>
 </div>
+
 <script>
-(function() {
+(function () {
+    var banner       = document.getElementById('pwa-banner');
+    var stepsEl      = document.getElementById('pwa-steps-text');
+    var platformEl   = document.getElementById('pwa-platform-label');
+    var installBtn   = document.getElementById('pwa-install-btn');
+    var installedBdg = document.getElementById('pwa-installed-badge');
+    var deferredPrompt = null;
+
+    // Déjà en mode PWA standalone
+    if (window.matchMedia('(display-mode: standalone)').matches ||
+        window.navigator.standalone === true) {
+        installedBdg.style.display = 'block';
+        return;
+    }
+
+    // Déjà dismissé
     if (localStorage.getItem('pwa_dismissed')) return;
-    if (window.matchMedia('(display-mode: standalone)').matches) return;
-    var popup=document.getElementById('pwa-popup'),stepsEl=document.getElementById('pwa-steps-text');
-    var deferredPrompt=null,ua=navigator.userAgent;
-    var isIOS=/iphone|ipad|ipod/i.test(ua),isSafari=/^((?!chrome|android).)*safari/i.test(ua);
-    var isAndroid=/android/i.test(ua),isChrome=/chrome/i.test(ua)&&!(/edge/i.test(ua));
-    if(isIOS&&isSafari){stepsEl.innerHTML='1. Appuyez sur <strong>Partager</strong> (&#9633;\u2191) dans Safari<br>2. Choisissez <strong>\u00ab Sur l\'écran d\'accueil \u00bb</strong><br>3. Confirmez avec <strong>Ajouter</strong>';document.getElementById('pwa-install-btn').style.display='none';popup.style.display='block';}
-    else if(isAndroid&&isChrome){window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();deferredPrompt=e;stepsEl.innerHTML='Appuyez sur <strong>Installer</strong> ci-dessous.';popup.style.display='block';});}
-    else{stepsEl.innerHTML='Dans votre navigateur, cherchez l\'icône <strong>\u2295</strong> dans la barre d\'adresse ou le menu \u2192 <strong>\u00ab Installer l\'application \u00bb</strong>.';popup.style.display='block';}
-    window.triggerInstall=function(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt.userChoice.then(function(){deferredPrompt=null;popup.style.display='none';});}else{popup.style.display='none';}};
-    window.dismissPwa=function(){popup.style.display='none';localStorage.setItem('pwa_dismissed','1');};
+
+    var ua        = navigator.userAgent;
+    var isIOS     = /iphone|ipad|ipod/i.test(ua);
+    var isSafari  = /^((?!chrome|android).)*safari/i.test(ua);
+    var isAndroid = /android/i.test(ua);
+    var isChrome  = /chrome/i.test(ua) && !/edge/i.test(ua);
+    var isFirefox = /firefox/i.test(ua);
+    var isEdge    = /edg\//i.test(ua);
+    var isSamsung = /samsungbrowser/i.test(ua);
+
+    if (isIOS && isSafari) {
+        // iOS Safari : instructions manuelles
+        platformEl.textContent = 'iPhone / iPad · Safari';
+        stepsEl.innerHTML =
+            '1. Appuyez sur <span>Partager</span> <span style="font-size:1.1em;">⬆</span> dans la barre Safari<br>' +
+            '2. Faites défiler et choisissez <span>« Sur l\'écran d\'accueil »</span><br>' +
+            '3. Confirmez avec <span>Ajouter</span>';
+        stepsEl.style.display = 'block';
+        installBtn.style.display = 'none';
+        banner.style.display = 'block';
+
+    } else if (isIOS && !isSafari) {
+        // iOS Chrome/Firefox : doit ouvrir dans Safari
+        platformEl.textContent = 'iPhone / iPad';
+        stepsEl.innerHTML =
+            '⚠️ L\'installation nécessite <span>Safari</span>.<br>' +
+            'Ouvre cette page dans Safari puis utilise <span>Partager → Sur l\'écran d\'accueil</span>.';
+        stepsEl.style.display = 'block';
+        installBtn.style.display = 'none';
+        banner.style.display = 'block';
+
+    } else if (isAndroid && (isChrome || isEdge || isSamsung)) {
+        // Android : prompt natif disponible
+        platformEl.textContent = 'Android · Installation en un tap';
+        window.addEventListener('beforeinstallprompt', function (e) {
+            e.preventDefault();
+            deferredPrompt = e;
+            banner.style.display = 'block';
+        });
+        // Fallback : afficher quand même le banner si le prompt tarde
+        setTimeout(function () {
+            if (!deferredPrompt) {
+                stepsEl.innerHTML =
+                    'Dans Chrome : menu <span>⋮</span> → <span>Ajouter à l\'écran d\'accueil</span>';
+                stepsEl.style.display = 'block';
+                installBtn.textContent = '📲 Voir comment installer';
+                installBtn.onclick = function () { stepsEl.style.display = 'block'; banner.style.display = 'block'; };
+                banner.style.display = 'block';
+            }
+        }, 3000);
+
+    } else if (isFirefox) {
+        platformEl.textContent = 'Firefox';
+        stepsEl.innerHTML = 'Dans Firefox : menu <span>⋮</span> → <span>« Installer »</span>';
+        stepsEl.style.display = 'block';
+        installBtn.style.display = 'none';
+        banner.style.display = 'block';
+
+    } else {
+        // Desktop Chrome / Edge / autres
+        platformEl.textContent = 'Desktop · Chrome / Edge';
+        window.addEventListener('beforeinstallprompt', function (e) {
+            e.preventDefault();
+            deferredPrompt = e;
+            banner.style.display = 'block';
+        });
+    }
+
+    // Écouteur : une fois installé, remplacer par le badge
+    window.addEventListener('appinstalled', function () {
+        banner.style.display = 'none';
+        installedBdg.style.display = 'block';
+        localStorage.removeItem('pwa_dismissed');
+    });
+
+    window.triggerInstall = function () {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(function (result) {
+                deferredPrompt = null;
+                if (result.outcome === 'accepted') {
+                    banner.style.display = 'none';
+                } 
+            });
+        } else {
+            banner.style.display = 'none';
+        }
+    };
+
+    window.dismissPwa = function () {
+        banner.style.display = 'none';
+        localStorage.setItem('pwa_dismissed', '1');
+    };
 })();
 </script>
 """, unsafe_allow_html=True)
 
+    # ── FORMULAIRE DE LOGIN ──
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<h1 style='text-align:center;font-size:3em;'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
