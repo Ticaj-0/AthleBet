@@ -315,17 +315,17 @@ if "user" not in st.session_state:
     <div class="install-banner">
         <div class="install-title">📲 Installer Athlé Bet</div>
         <div class="install-sub">Ajoute l'app à ton écran d'accueil pour un accès rapide</div>
+    
+        <p><b>🍎 iPhone / iPad :</b><br>
+        Bouton Partager ⬆ → "Sur l'écran d'accueil" → Ajouter</p>
+    
+        <p><b>🤖 Android :</b><br>
+        Menu ⋮ → "Ajouter à l'écran d'accueil"</p>
+    
+        <p><b>💻 PC / Mac :</b><br>
+        Icône d'installation dans la barre d'adresse Chrome / Edge</p>
     </div>
     """, unsafe_allow_html=True)
-    
-    st.markdown("### 🍎 iPhone / iPad")
-    st.markdown("Bouton **Partager ⬆** → *Sur l'écran d'accueil* → **Ajouter**")
-    
-    st.markdown("### 🤖 Android")
-    st.markdown("Menu **⋮** → *Ajouter à l'écran d'accueil*")
-    
-    st.markdown("### 💻 PC / Mac")
-    st.markdown("Icône d'installation dans la barre d'adresse **Chrome / Edge**")
 
     # =========================
     # LOGIN CARD
