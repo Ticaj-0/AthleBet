@@ -326,7 +326,6 @@ if "user" not in st.session_state:
     # =========================
     # LOGIN CARD
     # =========================
-    st.markdown("<div class='login-container'>", unsafe_allow_html=True)
     st.markdown("<h1 class='login-title'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
     st.markdown("<p class='login-subtitle'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
 
