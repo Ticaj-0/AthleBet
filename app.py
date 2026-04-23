@@ -307,29 +307,20 @@ if "user" not in st.session_state:
     </style>
     """, unsafe_allow_html=True)
     
-    # =========================
-    # INSTALL BANNER (FIX)
-    # =========================
-    
-    st.markdown("""
-    <div class="install-banner">
-        <div class="install-title">📲 Installer Athlé Bet</div>
-        <div class="install-sub">Ajoute l'app à ton écran d'accueil pour un accès rapide</div>
-    
-        <div>🍎 <b>iPhone / iPad :</b><br>
-        Bouton Partager ⬆ → "Sur l'écran d'accueil" → Ajouter</div>
-    
-        <br>
-    
-        <div>🤖 <b>Android :</b><br>
-        Menu ⋮ → "Ajouter à l'écran d'accueil"</div>
-    
-        <br>
-    
-        <div>💻 <b>PC / Mac :</b><br>
-        Icône d'installation dans la barre d'adresse Chrome / Edge</div>
-    </div>
-    """, unsafe_allow_html=True)
+# =========================
+# INSTALL BANNER FIX FINAL
+# =========================
+
+st.markdown("""
+<div class="install-banner">
+    <div class="install-title">📲 Installer Athlé Bet</div>
+    <div class="install-sub">Ajoute l'app à ton écran d'accueil pour un accès rapide</div>
+
+    <div>🍎 <b>iPhone / iPad :</b> Bouton Partager ⬆ → "Sur l'écran d'accueil" → Ajouter</div>
+    <div>🤖 <b>Android :</b> Menu ⋮ → "Ajouter à l'écran d'accueil"</div>
+    <div>💻 <b>PC / Mac :</b> Icône d'installation dans la barre d'adresse Chrome / Edge</div>
+</div>
+""", unsafe_allow_html=True)
 
     # =========================
     # LOGIN CARD
