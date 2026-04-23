@@ -648,66 +648,93 @@ elif page == "📊 Résultats":
                 with st.form(f"result_{c['id']}"):
                     st.markdown("**Résultats officiels :**")
                     results = {}
+                
                     for a in ath:
                         val = float(a["result"]) if a["result"] is not None else 0.0
                         label = f"{a['first_name']} {a['last_name']}  [{a['discipline'] or '—'}]"
                         if a["result"] is not None:
                             label += f"  ✅ (actuel: {a['result']})"
-                        results[a["id"]] = st.number_input(label, value=val, min_value=0.0, step=0.01, key=f"res_{c['id']}_{a['id']}")
-
+                
+                        results[a["id"]] = st.number_input(
+                            label,
+                            value=val,
+                            min_value=0.0,
+                            step=0.01,
+                            key=f"res_{c['id']}_{a['id']}"
+                        )
+                
                     if st.form_submit_button("💾 Enregistrer les résultats", use_container_width=True):
                         pb_updates = []
-
+                        should_notify = False
+                
                         with db() as conn:
                             cur = conn.cursor()
+                
+                            # 1. INSERT / UPDATE résultats
                             cur.executemany("""
-                                INSERT INTO results (competition_id,athlete_id,result)
-                                VALUES (%s,%s,%s)
-                                ON CONFLICT (competition_id,athlete_id) DO UPDATE SET result=EXCLUDED.result
-                            """, [(c["id"], aid, res) for aid, res in results.items() if res > 0])
-
+                                INSERT INTO results (competition_id, athlete_id, result)
+                                VALUES (%s, %s, %s)
+                                ON CONFLICT (competition_id, athlete_id)
+                                DO UPDATE SET result = EXCLUDED.result
+                            """, [
+                                (c["id"], aid, res)
+                                for aid, res in results.items()
+                                if res > 0
+                            ])
+                
+                            # 2. PB update
                             for a in ath:
                                 res_val = results.get(a["id"], 0.0)
+                
                                 if res_val <= 0 or not a["discipline"]:
                                     continue
+                
                                 updated, old_pb, new_pb = maybe_update_pb(
                                     cur, a["id"], a["discipline"], res_val
                                 )
+                
                                 if updated:
                                     name_str = f"{a['first_name']} {a['last_name']}"
                                     if old_pb is None:
-                                        pb_updates.append(f"🆕 **{name_str}** — Premier PB en {a['discipline']} : **{new_pb:.2f}**")
+                                        pb_updates.append(
+                                            f"🆕 **{name_str}** — Premier PB en {a['discipline']} : **{new_pb:.2f}**"
+                                        )
                                     else:
-                                        pb_updates.append(f"🏅 **{name_str}** — Nouveau PB en {a['discipline']} : {old_pb:.2f} → **{new_pb:.2f}**")
-
+                                        pb_updates.append(
+                                            f"🏅 **{name_str}** — Nouveau PB en {a['discipline']} : {old_pb:.2f} → **{new_pb:.2f}**"
+                                        )
+                
+                            # 3. ONE SIGNAL (SAFE + ONCE ONLY)
+                            cur.execute("""
+                                SELECT 1 FROM competition_notifications WHERE competition_id=%s
+                            """, (c["id"],))
+                
+                            already_sent = cur.fetchone()
+                
+                            if not already_sent:
+                                should_notify = True
+                
+                                cur.execute("""
+                                    INSERT INTO competition_notifications (competition_id)
+                                    VALUES (%s)
+                                """, (c["id"],))
+                
+                        # OUTSIDE DB (API call propre)
+                        if should_notify:
+                            send_onesignal_notification(
+                                title="🏟️ Résultats disponibles",
+                                message=f"Les résultats de la compétition « {c['name']} » sont maintenant disponibles !"
+                            )
+                
                         invalidate_cache()
                         st.success("✅ Résultats enregistrés !")
-
+                
                         if pb_updates:
                             st.balloons()
                             st.markdown("### 🎉 Nouveaux PBs !")
                             for msg in pb_updates:
                                 st.markdown(msg)
-                        # ─────────────────────────────
-                        # ONE SIGNAL NOTIFICATION (ONCE PER COMPETITION)
-                        # ─────────────────────────────
-                        cur.execute("""
-                            SELECT 1 FROM competition_notifications WHERE competition_id=%s
-                        """, (c["id"],))
-                        
-                        already_sent = cur.fetchone()
-                        
-                        if not already_sent:
-                            send_onesignal_notification(
-                                title="🏟️ Résultats disponibles",
-                                message=f"Les résultats de la compétition « {c['name']} » sont maintenant disponibles !"
-                            )
-                        
-                            cur.execute("""
-                                INSERT INTO competition_notifications (competition_id)
-                                VALUES (%s)
-                            """, (c["id"],))
-
+                
                         st.rerun()
 
 # =========================
