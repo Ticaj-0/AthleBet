@@ -4,6 +4,7 @@ import psycopg2.extras
 import psycopg2.pool
 from datetime import datetime
 from contextlib import contextmanager
+import requests
 
 st.set_page_config(page_title="Athlé Bet", page_icon="🏃", layout="wide")
 
@@ -51,6 +52,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS competition_athletes (competition_id INTEGER, athlete_id INTEGER, discipline TEXT, PRIMARY KEY (competition_id, athlete_id), FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE, FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS predictions (username TEXT, competition_id INTEGER, athlete_id INTEGER, prediction REAL, PRIMARY KEY (username, competition_id, athlete_id), FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS results (competition_id INTEGER, athlete_id INTEGER, result REAL, PRIMARY KEY (competition_id, athlete_id), FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS competition_notifications (competition_id INTEGER PRIMARY KEY,sent_at TIMESTAMP DEFAULT NOW());
         """)
         cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='competition_athletes' AND column_name='discipline'")
         if not cur.fetchone():
@@ -76,6 +78,23 @@ def rows_to_dicts(rows):
 def invalidate_cache():
     st.cache_data.clear()
 
+def send_onesignal_notification(title, message):
+    url = "https://onesignal.com/api/v1/notifications"
+
+    payload = {
+        "app_id": st.secrets["onesignal"]["app_id"],
+        "included_segments": ["All"],
+        "headings": {"en": title},
+        "contents": {"en": message}
+    }
+
+    headers = {
+        "Authorization": f"Basic {st.secrets['onesignal']['api_key']}",
+        "Content-Type": "application/json"
+    }
+
+    requests.post(url, json=payload, headers=headers)
+    
 @st.cache_data(ttl=30)
 def get_all_athletes():
     with db() as conn:
@@ -669,6 +688,25 @@ elif page == "📊 Résultats":
                             st.markdown("### 🎉 Nouveaux PBs !")
                             for msg in pb_updates:
                                 st.markdown(msg)
+                        # ─────────────────────────────
+                        # ONE SIGNAL NOTIFICATION (ONCE PER COMPETITION)
+                        # ─────────────────────────────
+                        cur.execute("""
+                            SELECT 1 FROM competition_notifications WHERE competition_id=%s
+                        """, (c["id"],))
+                        
+                        already_sent = cur.fetchone()
+                        
+                        if not already_sent:
+                            send_onesignal_notification(
+                                title="🏟️ Résultats disponibles",
+                                message=f"Les résultats de la compétition « {c['name']} » sont maintenant disponibles !"
+                            )
+                        
+                            cur.execute("""
+                                INSERT INTO competition_notifications (competition_id)
+                                VALUES (%s)
+                            """, (c["id"],))
 
                         st.rerun()
 
