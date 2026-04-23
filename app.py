@@ -161,6 +161,7 @@ def get_classement_data():
 if "user" not in st.session_state:
     saved_user = st.query_params.get("u", "")
 
+    # 🔐 Auto-login via URL
     if saved_user:
         with db() as conn:
             cur = conn.cursor()
@@ -169,52 +170,59 @@ if "user" not in st.session_state:
                 st.session_state.user = saved_user
                 st.rerun()
 
-    # Auto-login depuis localStorage
+    # 🔐 Auto-login via localStorage (Streamlit-safe injection)
     st.markdown("""
 <script>
-(function() {
-    var stored = localStorage.getItem('athle_bet_user');
-    if (!stored) return;
+(function () {
+    try {
+        var stored = localStorage.getItem('athle_bet_user');
+        if (!stored) return;
 
-    var params = new URLSearchParams(window.location.search);
-    if (params.get('u') === stored) return;
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('u') === stored) return;
 
-    params.set('u', stored);
-    window.location.search = params.toString();
+        params.set('u', stored);
+        window.location.search = params.toString();
+    } catch (e) {}
 })();
 </script>
 """, unsafe_allow_html=True)
 
     # =========================
-    # INSTALL INFO (VERSION STREAMLIT SAFE)
+    # INSTALL HELP (STREAMLIT SAFE)
     # =========================
-if "show_install_help" not in st.session_state:
-    st.session_state.show_install_help = False
+    if "show_install_help" not in st.session_state:
+        st.session_state.show_install_help = False
 
-if st.button("📌 Ajouter à l’écran d’accueil"):
-    st.session_state.show_install_help = True
+    st.markdown("### 📲 Installer l’application")
 
-if st.session_state.show_install_help:
-    st.info("""
-📱 iPhone / iPad :
-• Appuie sur PARTAGER ⬆️
-• “Sur l’écran d’accueil”
-• Ajouter
+    colA, colB = st.columns([2, 1])
 
-📱 Android :
-• Menu ⋮ en haut à droite
-• “Ajouter à l’écran d’accueil”
+    with colA:
+        if st.button("📌 Ajouter à l’écran d’accueil", use_container_width=True):
+            st.session_state.show_install_help = True
 
-💻 Ordinateur :
-• Icône d’installation dans la barre du navigateur
+    with colB:
+        if st.button("❌"):
+            st.session_state.show_install_help = False
+
+    if st.session_state.show_install_help:
+        st.info("""
+📱 **iPhone / iPad**
+1. Appuie sur le bouton PARTAGER ⬆️  
+2. “Sur l’écran d’accueil”  
+3. Ajouter  
+
+📱 **Android**
+1. Menu ⋮ (en haut à droite)  
+2. “Ajouter à l’écran d’accueil”  
+
+💻 **Ordinateur**
+• Clique sur l’icône d’installation dans la barre du navigateur
 """)
 
-    if st.button("❌ Fermer"):
-        st.session_state.show_install_help = False
-        st.rerun()
-
     # =========================
-    # LOGIN FORM
+    # LOGIN UI
     # =========================
     col1, col2, col3 = st.columns([1, 2, 1])
 
@@ -231,7 +239,7 @@ if st.session_state.show_install_help:
 
         st.divider()
 
-        u = st.text_input("Choisis ton pseudo", placeholder="Ex: Ticaj")
+        u = st.text_input("Choisis ton pseudo", placeholder="Ex: SpeedDemon42")
 
         if st.button("▶ Entrer dans l'arène", use_container_width=True) and u.strip():
             with db() as conn:
