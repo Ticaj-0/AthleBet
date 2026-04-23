@@ -182,6 +182,58 @@ if "user" not in st.session_state:
 </script>
 """, unsafe_allow_html=True)
 
+    # ── INJECTION DU MANIFEST PWA (requis par Chrome Android) ──────────────
+    st.markdown("""
+<script>
+(function() {
+    if (document.querySelector('link[rel="manifest"]')) return;
+    var manifest = {
+        name: "Athlé Bet",
+        short_name: "AthléBet",
+        description: "Pronostique les performances de tes athlètes",
+        start_url: window.location.pathname + window.location.search,
+        display: "standalone",
+        background_color: "#0f0f0f",
+        theme_color: "#e94560",
+        orientation: "portrait-primary",
+        icons: [
+            {
+                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='32' fill='%23e94560'/%3E%3Ctext x='96' y='130' font-size='110' text-anchor='middle'%3E%F0%9F%8F%83%3C/text%3E%3C/svg%3E",
+                sizes: "192x192",
+                type: "image/svg+xml",
+                purpose: "any maskable"
+            },
+            {
+                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='80' fill='%23e94560'/%3E%3Ctext x='256' y='340' font-size='300' text-anchor='middle'%3E%F0%9F%8F%83%3C/text%3E%3C/svg%3E",
+                sizes: "512x512",
+                type: "image/svg+xml",
+                purpose: "any maskable"
+            }
+        ]
+    };
+    var blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+    var link = document.createElement('link');
+    link.rel  = 'manifest';
+    link.href = URL.createObjectURL(blob);
+    document.head.appendChild(link);
+
+    var metas = [
+        ['mobile-web-app-capable',                'yes'],
+        ['apple-mobile-web-app-capable',          'yes'],
+        ['apple-mobile-web-app-title',            'AthléBet'],
+        ['apple-mobile-web-app-status-bar-style', 'black-translucent'],
+        ['theme-color',                           '#e94560'],
+    ];
+    metas.forEach(function(m) {
+        if (document.querySelector('meta[name="' + m[0] + '"]')) return;
+        var el = document.createElement('meta');
+        el.name = m[0]; el.content = m[1];
+        document.head.appendChild(el);
+    });
+})();
+</script>
+""", unsafe_allow_html=True)
+
     # ── PWA INSTALL BANNER (affiché sur la page de login) ──────────────────
     st.markdown("""
 <style>
@@ -334,24 +386,22 @@ if "user" not in st.session_state:
         banner.style.display = 'block';
 
     } else if (isAndroid && (isChrome || isEdge || isSamsung)) {
-        // Android : prompt natif disponible
-        platformEl.textContent = 'Android · Installation en un tap';
+        // Android : afficher immédiatement avec instructions manuelles
+        platformEl.textContent = 'Android · Chrome';
+        stepsEl.innerHTML = 'Menu <span>⋮</span> (en haut à droite) → <span>Ajouter à l\'écran d\'accueil</span>';
+        stepsEl.style.display = 'block';
+        installBtn.style.display = 'none';
+        banner.style.display = 'block';
+
+        // Si le prompt natif est dispo, on propose le bouton en remplacement
         window.addEventListener('beforeinstallprompt', function (e) {
             e.preventDefault();
             deferredPrompt = e;
-            banner.style.display = 'block';
+            stepsEl.style.display = 'none';
+            installBtn.style.display = 'inline-block';
+            installBtn.textContent = '📲 Installer maintenant';
+            platformEl.textContent = 'Android · Installation en un tap';
         });
-        // Fallback : afficher quand même le banner si le prompt tarde
-        setTimeout(function () {
-            if (!deferredPrompt) {
-                stepsEl.innerHTML =
-                    'Dans Chrome : menu <span>⋮</span> → <span>Ajouter à l\'écran d\'accueil</span>';
-                stepsEl.style.display = 'block';
-                installBtn.textContent = '📲 Voir comment installer';
-                installBtn.onclick = function () { stepsEl.style.display = 'block'; banner.style.display = 'block'; };
-                banner.style.display = 'block';
-            }
-        }, 3000);
 
     } else if (isFirefox) {
         platformEl.textContent = 'Firefox';
