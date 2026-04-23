@@ -174,8 +174,10 @@ if "user" not in st.session_state:
 (function() {
     var stored = localStorage.getItem('athle_bet_user');
     if (!stored) return;
+
     var params = new URLSearchParams(window.location.search);
     if (params.get('u') === stored) return;
+
     params.set('u', stored);
     window.location.search = params.toString();
 })();
@@ -183,77 +185,97 @@ if "user" not in st.session_state:
 """, unsafe_allow_html=True)
 
     # =========================
-    # BOUTON PIN ÉCRAN D’ACCUEIL (FIABLE)
+    # BOUTON PIN ÉCRAN D’ACCUEIL (ROBUSTE STREAMLIT)
     # =========================
     st.markdown("""
-    <style>
-    .pin-btn {
-        display: block;
-        width: 100%;
-        background: #e94560;
-        color: white;
-        border: none;
-        border-radius: 10px;
-        padding: 14px;
-        font-size: 1em;
-        font-weight: 600;
-        text-align: center;
-        cursor: pointer;
-        margin-bottom: 20px;
-    }
-    .pin-btn:active { opacity: 0.85; }
-    </style>
-    
-    <button class="pin-btn" id="pin-btn">📌 Ajouter à l’écran d’accueil</button>
-    
-    <script>
-    setTimeout(function() {
-        const btn = document.getElementById("pin-btn");
-        if (!btn) return;
-    
-        btn.addEventListener("click", function() {
-            var ua = navigator.userAgent.toLowerCase();
-    
-            if (/iphone|ipad|ipod/.test(ua)) {
-                alert(
-                    "📱 iPhone / iPad :\\n\\n" +
-                    "1. Appuie sur PARTAGER (⬆️)\\n" +
-                    "2. 'Sur l’écran d’accueil'\\n" +
-                    "3. Ajouter"
-                );
-            } 
-            else if (/android/.test(ua)) {
-                alert(
-                    "📱 Android :\\n\\n" +
-                    "Menu ⋮ → Ajouter à l’écran d’accueil"
-                );
-            } 
-            else {
-                alert(
-                    "💻 Ordinateur :\\n\\n" +
-                    "Chrome / Edge → icône 📥 dans la barre URL"
-                );
-            }
-        });
-    }, 500);
-    </script>
-    """, unsafe_allow_html=True)
+<style>
+#pin-btn {
+    width: 100%;
+    background: #e94560;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 20px;
+}
+#pin-btn:active {
+    opacity: 0.85;
+    transform: scale(0.98);
+}
+</style>
+
+<button id="pin-btn">📌 Ajouter à l’écran d’accueil</button>
+
+<script>
+(function () {
+    const btn = document.getElementById("pin-btn");
+    if (!btn) return;
+
+    btn.addEventListener("click", function () {
+        const ua = navigator.userAgent.toLowerCase();
+
+        if (ua.includes("iphone") || ua.includes("ipad") || ua.includes("ipod")) {
+            alert(
+                "📱 iOS :\\n\\n" +
+                "1. Appuie sur le bouton PARTAGER (⬆️)\\n" +
+                "2. Sélectionne 'Sur l’écran d’accueil'\\n" +
+                "3. Valide avec Ajouter"
+            );
+        }
+        else if (ua.includes("android")) {
+            alert(
+                "📱 Android :\\n\\n" +
+                "Menu ⋮ (en haut à droite)\\n" +
+                "→ Ajouter à l’écran d’accueil"
+            );
+        }
+        else {
+            alert(
+                "💻 Desktop :\\n\\n" +
+                "Dans Chrome / Edge :\\n" +
+                "icône d’installation dans la barre d’adresse"
+            );
+        }
+    });
+})();
+</script>
+""", unsafe_allow_html=True)
 
     # ── FORMULAIRE DE LOGIN ──
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<h1 style='text-align:center;font-size:3em;'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;color:#666;'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
+        st.markdown(
+            "<h1 style='text-align:center;font-size:3em;'>🏃 ATHLÉ BET</h1>",
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            "<p style='text-align:center;color:#666;'>Pronostique. Compète. Grimpe au classement.</p>",
+            unsafe_allow_html=True
+        )
+
         st.divider()
+
         u = st.text_input("Choisis ton pseudo", placeholder="Ex: SpeedDemon42")
+
         if st.button("▶ Entrer dans l'arène", use_container_width=True) and u.strip():
             with db() as conn:
                 cur = conn.cursor()
-                cur.execute("INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING", (u.strip(),))
+                cur.execute(
+                    "INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING",
+                    (u.strip(),)
+                )
+
             st.session_state.user = u.strip()
             st.query_params["u"] = u.strip()
-            st.markdown(f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>", unsafe_allow_html=True)
+            st.markdown(
+                f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
+                unsafe_allow_html=True
+            )
             st.rerun()
+
     st.stop()
 
 current_user = st.session_state.user
