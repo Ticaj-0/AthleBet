@@ -158,10 +158,6 @@ def get_classement_data():
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PB AUTO-UPDATE HELPER
-# Disciplines chrono (plus petit = meilleur) vs distance/hauteur (plus grand = meilleur)
-# On détecte selon la valeur : si discipline contient "saut", "lancer", "hauteur",
-# "longueur", "perche", "triple", "poids", "disque", "marteau", "javelot" → higher is better
-# Sinon (course, marche…) → lower is better
 # ─────────────────────────────────────────────────────────────────────────────
 HIGHER_IS_BETTER_KEYWORDS = [
     "saut", "hauteur", "longueur", "perche", "triple", "lancer",
@@ -182,7 +178,6 @@ def maybe_update_pb(cur, athlete_id: int, discipline: str, new_result: float):
     higher = is_higher_better(discipline)
 
     if row is None:
-        # No PB yet → create it
         cur.execute(
             "INSERT INTO athlete_pbs (athlete_id, discipline, pb) VALUES (%s, %s, %s)",
             (athlete_id, discipline, new_result)
@@ -201,7 +196,7 @@ def maybe_update_pb(cur, athlete_id: int, discipline: str, new_result: float):
 
 
 # =========================
-# AUTH
+# AUTH — bloc unique
 # =========================
 if "user" not in st.session_state:
     saved_user = st.query_params.get("u", "")
@@ -214,34 +209,7 @@ if "user" not in st.session_state:
                 st.session_state.user = saved_user
                 st.rerun()
 
-    # localStorage auto-login
-    st.markdown("""
-<script>
-(function () {
-    try {
-        var stored = localStorage.getItem('athle_bet_user');
-        if (!stored) return;
-        var params = new URLSearchParams(window.location.search);
-        if (params.get('u') === stored) return;
-        params.set('u', stored);
-        window.location.search = params.toString();
-    } catch (e) {}
-})();
-</script>
-""", unsafe_allow_html=True)
-
-if "user" not in st.session_state:
-    saved_user = st.query_params.get("u", "")
-
-    if saved_user:
-        with db() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT 1 FROM users WHERE username = %s", (saved_user,))
-            if cur.fetchone():
-                st.session_state.user = saved_user
-                st.rerun()
-
-    # Auto-login localStorage
+    # Auto-login via localStorage (une seule injection)
     st.markdown("""
 <script>
 (function () {
@@ -258,7 +226,7 @@ if "user" not in st.session_state:
 """, unsafe_allow_html=True)
 
     # =========================
-    # INSTALL BANNER (FIXED)
+    # INSTALL BANNER
     # =========================
     st.markdown("""
 <style>
@@ -271,19 +239,16 @@ if "user" not in st.session_state:
     color: #e2e8f0;
     font-family: 'DM Sans', sans-serif;
 }
-
 .install-title {
     font-size: 1.1em;
     font-weight: 700;
     margin-bottom: 6px;
 }
-
 .install-sub {
     font-size: 0.85em;
     color: #94a3b8;
     margin-bottom: 14px;
 }
-
 .step {
     background: rgba(255,255,255,0.05);
     border-radius: 10px;
@@ -291,7 +256,6 @@ if "user" not in st.session_state:
     margin-bottom: 8px;
     font-size: 0.85em;
 }
-
 .step strong {
     color: #a5b4fc;
 }
@@ -299,21 +263,18 @@ if "user" not in st.session_state:
 
 <div class="install-banner">
     <div class="install-title">📲 Installer Athlé Bet</div>
-    <div class="install-sub">Ajoute l’app à ton écran d’accueil pour un accès rapide</div>
-
+    <div class="install-sub">Ajoute l'app à ton écran d'accueil pour un accès rapide</div>
     <div class="step">
         <strong>🍎 iPhone / iPad :</strong><br>
-        Bouton Partager ⬆ → “Sur l’écran d’accueil” → Ajouter
+        Bouton Partager ⬆ → "Sur l'écran d'accueil" → Ajouter
     </div>
-
     <div class="step">
         <strong>🤖 Android :</strong><br>
-        Menu ⋮ → “Ajouter à l’écran d’accueil”
+        Menu ⋮ → "Ajouter à l'écran d'accueil"
     </div>
-
     <div class="step">
         <strong>💻 PC / Mac :</strong><br>
-        Icône d’installation dans la barre d’adresse Chrome / Edge
+        Icône d'installation dans la barre d'adresse Chrome / Edge
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -332,21 +293,18 @@ if "user" not in st.session_state:
     border-radius: 18px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.4);
 }
-
 .login-title {
     text-align:center;
     font-size:3em;
     margin-bottom: 0;
     color: #f8fafc;
 }
-
 .login-subtitle {
     text-align:center;
     color:#94a3b8;
     margin-top: 8px;
     margin-bottom: 24px;
 }
-
 div.stButton > button {
     background: linear-gradient(135deg, #e94560, #ff2e63);
     color: white;
@@ -357,7 +315,6 @@ div.stButton > button {
     font-weight: 600;
     transition: 0.2s ease;
 }
-
 div.stButton > button:hover {
     transform: translateY(-1px);
     opacity: 0.95;
@@ -378,15 +335,12 @@ div.stButton > button:hover {
                 "INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING",
                 (u.strip(),)
             )
-
         st.session_state.user = u.strip()
         st.query_params["u"] = u.strip()
-
         st.markdown(
             f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
             unsafe_allow_html=True
         )
-
         st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -674,19 +628,16 @@ elif page == "📊 Résultats":
                         results[a["id"]] = st.number_input(label, value=val, min_value=0.0, step=0.01, key=f"res_{c['id']}_{a['id']}")
 
                     if st.form_submit_button("💾 Enregistrer les résultats", use_container_width=True):
-                        pb_updates = []  # collect PB improvement messages
+                        pb_updates = []
 
                         with db() as conn:
                             cur = conn.cursor()
-
-                            # Save results
                             cur.executemany("""
                                 INSERT INTO results (competition_id,athlete_id,result)
                                 VALUES (%s,%s,%s)
                                 ON CONFLICT (competition_id,athlete_id) DO UPDATE SET result=EXCLUDED.result
                             """, [(c["id"], aid, res) for aid, res in results.items() if res > 0])
 
-                            # Auto-update PBs if result is better
                             for a in ath:
                                 res_val = results.get(a["id"], 0.0)
                                 if res_val <= 0 or not a["discipline"]:
