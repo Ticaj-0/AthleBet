@@ -188,15 +188,27 @@ if "user" not in st.session_state:
     # Streamlit les sert automatiquement sous /app/static/
     st.markdown("""
 <link rel="manifest" href="manifest.json">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="AthléBet">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#e94560">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="AthléBet">
+
 <script>
+console.log("PWA init");
+
+// Debug manifest
+fetch('manifest.json')
+  .then(r => console.log("Manifest OK", r.status))
+  .catch(e => console.error("Manifest FAIL", e));
+
+// Service Worker
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js')
-        .catch(function(e) { console.warn('SW registration failed:', e); });
+  navigator.serviceWorker.register('sw.js')
+    .then(reg => console.log("SW OK", reg.scope))
+    .catch(err => console.error("SW FAIL", err));
 }
 </script>
 """, unsafe_allow_html=True)
