@@ -852,84 +852,90 @@ elif page == "🏆 Classement":
 
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
 
+    CARD_TPL = (
+        '<div style="background:{bg};border:2px solid {border};border-radius:12px;'
+        'padding:14px 22px;margin-bottom:10px;display:flex;'
+        'justify-content:space-between;align-items:center;'
+        'box-shadow:0 2px 8px rgba(0,0,0,0.18);">'
+        '<div style="display:flex;align-items:center;gap:10px;'
+        'color:{text_color};font-size:1.18em;">'
+        '<span style="font-size:1.3em;">{rank_label}</span>'
+        '<strong>{username}</strong>{me_badge}{delta_html}'
+        '</div>'
+        '<div style="font-size:1.25em;font-weight:800;color:{pts_color};">'
+        '{total_score} pts</div>'
+        '</div>'
+    )
+
     for i, (username, total_score) in enumerate(sorted_scores, 1):
         is_me = username == current_user
 
-        # --- Thème podium ---
         if i == 1:
-            bg = "linear-gradient(135deg, #F9D423 0%, #F7971E 100%)"
-            border = "#E6A817"
+            bg         = "linear-gradient(135deg,#F9D423 0%,#F7971E 100%)"
+            border     = "#E6A817"
             text_color = "#3d2000"
             rank_label = "🥇"
-            badge_color = "#5a3a00"
+            badge_col  = "#5a3a00"
         elif i == 2:
-            bg = "linear-gradient(135deg, #e0e0e0 0%, #9e9e9e 100%)"
-            border = "#757575"
+            bg         = "linear-gradient(135deg,#e0e0e0 0%,#9e9e9e 100%)"
+            border     = "#757575"
             text_color = "#1a1a1a"
             rank_label = "🥈"
-            badge_color = "#444444"
+            badge_col  = "#444444"
         elif i == 3:
-            bg = "linear-gradient(135deg, #cd9b5a 0%, #8B5e2a 100%)"
-            border = "#7a4f22"
+            bg         = "linear-gradient(135deg,#cd9b5a 0%,#8B5e2a 100%)"
+            border     = "#7a4f22"
             text_color = "#fff0e0"
             rank_label = "🥉"
-            badge_color = "#c8a07a"
+            badge_col  = "#c8a07a"
         else:
-            bg = "#2d3f5e" if is_me else "#1e293b"
-            border = "#FFD700" if is_me else "#334155"
+            bg         = "#2d3f5e" if is_me else "#1e293b"
+            border     = "#FFD700" if is_me else "#334155"
             text_color = "#f1f5f9"
             rank_label = "#" + str(i)
-            badge_color = "#94a3b8"
+            badge_col  = "#94a3b8"
 
-        pts_color = "#3d2000" if i == 1 else ("#1a1a1a" if i == 2 else ("#fff0e0" if i == 3 else "#e94560"))
+        pts_color = (
+            "#3d2000" if i == 1 else
+            "#1a1a1a" if i == 2 else
+            "#fff0e0" if i == 3 else
+            "#e94560"
+        )
 
-        # --- Badge (vous) ---
-        if is_me:
-            me_badge = (
-                "<span style=\"font-size:0.72em; color:" + badge_color + "; margin-left:6px;\">"
-                "(vous)</span>"
-            )
-        else:
-            me_badge = ""
+        me_badge = (
+            '<span style="font-size:0.72em;color:{c};margin-left:6px;">(vous)</span>'
+            .format(c=badge_col)
+        ) if is_me else ""
 
-        # --- Delta classement ---
         if ranks_before is not None:
             prev_rank = ranks_before.get(username, len(usernames))
             delta = prev_rank - i
             if delta > 0:
                 delta_html = (
-                    "<span style=\"color:#22c55e; font-size:0.88em; font-weight:700;"
-                    " background:rgba(34,197,94,0.15); padding:1px 6px; border-radius:10px;\">"
-                    "▲ +" + str(delta) + "</span>"
+                    '<span style="color:#22c55e;font-size:0.88em;font-weight:700;'
+                    'background:rgba(34,197,94,0.15);padding:1px 6px;border-radius:10px;">'
+                    '▲ +{d}</span>'.format(d=delta)
                 )
             elif delta < 0:
                 delta_html = (
-                    "<span style=\"color:#ef4444; font-size:0.88em; font-weight:700;"
-                    " background:rgba(239,68,68,0.15); padding:1px 6px; border-radius:10px;\">"
-                    "▼ " + str(delta) + "</span>"
+                    '<span style="color:#ef4444;font-size:0.88em;font-weight:700;'
+                    'background:rgba(239,68,68,0.15);padding:1px 6px;border-radius:10px;">'
+                    '▼ {d}</span>'.format(d=delta)
                 )
             else:
-                delta_html = "<span style=\"color:#94a3b8; font-size:0.88em; padding:1px 6px;\">—</span>"
+                delta_html = '<span style="color:#94a3b8;font-size:0.88em;padding:1px 6px;">—</span>'
         else:
             delta_html = ""
 
-        # --- Carte HTML assemblée sans f-string imbriquée ---
-        card = (
-            "<div style=\"background:" + bg + "; border:2px solid " + border + ";"
-            " border-radius:12px; padding:14px 22px; margin-bottom:10px;"
-            " display:flex; justify-content:space-between; align-items:center;"
-            " box-shadow:0 2px 8px rgba(0,0,0,0.18);\">"
-            "<div style=\"display:flex; align-items:center; gap:10px;"
-            " color:" + text_color + "; font-size:1.18em;\">"
-            "<span style=\"font-size:1.3em;\">" + rank_label + "</span>"
-            "<strong>" + username + "</strong>"
-            + me_badge + delta_html +
-            "</div>"
-            "<div style=\"font-size:1.25em; font-weight:800; color:" + pts_color + ";\">"
-            + str(total_score) + " pts</div>"
-            "</div>"
+        st.markdown(
+            CARD_TPL.format(
+                bg=bg, border=border, text_color=text_color,
+                rank_label=rank_label, username=username,
+                me_badge=me_badge, delta_html=delta_html,
+                pts_color=pts_color, total_score=total_score,
+            ),
+            unsafe_allow_html=True,
         )
-        st.markdown(card, unsafe_allow_html=True)
 
     if last_comp:
         st.divider()
