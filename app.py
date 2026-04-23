@@ -186,39 +186,32 @@ if "user" not in st.session_state:
 """, unsafe_allow_html=True)
 
     # =========================
-    # INSTALL INFO (REMPLACEMENT DU BOUTON PWA BUGGÉ)
+    # INSTALL INFO (VERSION STREAMLIT SAFE)
     # =========================
-    st.markdown("""
-<div style="
-    background:#1e293b;
-    border:1px solid #334155;
-    border-radius:12px;
-    padding:14px 16px;
-    margin-bottom:18px;
-    color:#f1f5f9;
-    font-family:DM Sans, sans-serif;
-">
-    <div style="font-weight:700; margin-bottom:8px;">
-        📌 Ajouter Athlé Bet à l’écran d’accueil
-    </div>
+if "show_install_help" not in st.session_state:
+    st.session_state.show_install_help = False
 
-    <div style="font-size:0.92em; line-height:1.6; color:#cbd5e1;">
-        <b>📱 iPhone / iPad :</b><br>
-        • Appuie sur le bouton <b>Partager ⬆️</b><br>
-        • Sélectionne <b>“Sur l’écran d’accueil”</b><br>
-        • Puis “Ajouter”
-        <br><br>
+if st.button("📌 Ajouter à l’écran d’accueil"):
+    st.session_state.show_install_help = True
 
-        <b>📱 Android :</b><br>
-        • Clique sur le menu <b>⋮</b><br>
-        • Choisis <b>“Ajouter à l’écran d’accueil”</b>
-        <br><br>
+if st.session_state.show_install_help:
+    st.info("""
+📱 iPhone / iPad :
+• Appuie sur PARTAGER ⬆️
+• “Sur l’écran d’accueil”
+• Ajouter
 
-        <b>💻 Ordinateur :</b><br>
-        • Clique sur l’icône d’installation dans la barre du navigateur
-    </div>
-</div>
-""", unsafe_allow_html=True)
+📱 Android :
+• Menu ⋮ en haut à droite
+• “Ajouter à l’écran d’accueil”
+
+💻 Ordinateur :
+• Icône d’installation dans la barre du navigateur
+""")
+
+    if st.button("❌ Fermer"):
+        st.session_state.show_install_help = False
+        st.rerun()
 
     # =========================
     # LOGIN FORM
