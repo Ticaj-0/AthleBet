@@ -155,6 +155,51 @@ def get_classement_data():
         scores = rows_to_dicts(cur.fetchall())
     return users, comps, scores
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PB AUTO-UPDATE HELPER
+# Disciplines chrono (plus petit = meilleur) vs distance/hauteur (plus grand = meilleur)
+# On détecte selon la valeur : si discipline contient "saut", "lancer", "hauteur",
+# "longueur", "perche", "triple", "poids", "disque", "marteau", "javelot" → higher is better
+# Sinon (course, marche…) → lower is better
+# ─────────────────────────────────────────────────────────────────────────────
+HIGHER_IS_BETTER_KEYWORDS = [
+    "saut", "hauteur", "longueur", "perche", "triple", "lancer",
+    "poids", "disque", "marteau", "javelot", "throw", "jump", "vault"
+]
+
+def is_higher_better(discipline: str) -> bool:
+    d = discipline.lower()
+    return any(kw in d for kw in HIGHER_IS_BETTER_KEYWORDS)
+
+def maybe_update_pb(cur, athlete_id: int, discipline: str, new_result: float):
+    """Update the PB if new_result is better than the existing one."""
+    cur.execute(
+        "SELECT pb FROM athlete_pbs WHERE athlete_id=%s AND discipline=%s",
+        (athlete_id, discipline)
+    )
+    row = cur.fetchone()
+    higher = is_higher_better(discipline)
+
+    if row is None:
+        # No PB yet → create it
+        cur.execute(
+            "INSERT INTO athlete_pbs (athlete_id, discipline, pb) VALUES (%s, %s, %s)",
+            (athlete_id, discipline, new_result)
+        )
+        return True, None, new_result
+    else:
+        old_pb = float(row["pb"])
+        is_better = (new_result > old_pb) if higher else (new_result < old_pb)
+        if is_better:
+            cur.execute(
+                "UPDATE athlete_pbs SET pb=%s WHERE athlete_id=%s AND discipline=%s",
+                (new_result, athlete_id, discipline)
+            )
+            return True, old_pb, new_result
+        return False, old_pb, old_pb
+
+
 # =========================
 # AUTH
 # =========================
@@ -176,10 +221,8 @@ if "user" not in st.session_state:
     try {
         var stored = localStorage.getItem('athle_bet_user');
         if (!stored) return;
-
         var params = new URLSearchParams(window.location.search);
         if (params.get('u') === stored) return;
-
         params.set('u', stored);
         window.location.search = params.toString();
     } catch (e) {}
@@ -187,12 +230,101 @@ if "user" not in st.session_state:
 </script>
 """, unsafe_allow_html=True)
 
-    # =========================
-    # STYLE GLOBAL LOGIN MODERNE
-    # =========================
+    # ─────────────────────────────────────────────
+    # INSTALL BANNER — smart, platform-aware
+    # ─────────────────────────────────────────────
     st.markdown("""
 <style>
-/* fond global login */
+/* ── Install Banner ── */
+.install-banner {
+    position: relative;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    border: 1px solid rgba(99,102,241,0.4);
+    border-radius: 16px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+.install-banner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at top left, rgba(99,102,241,0.15) 0%, transparent 60%);
+    pointer-events: none;
+}
+.install-banner-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+.install-icon {
+    font-size: 2em;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.install-heading {
+    font-size: 1.05em;
+    font-weight: 700;
+    color: #e2e8f0;
+    margin: 0;
+}
+.install-sub {
+    font-size: 0.82em;
+    color: #94a3b8;
+    margin: 2px 0 0;
+}
+.install-steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 4px;
+}
+.install-step {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: center;
+}
+.install-step-num {
+    font-size: 1.4em;
+    display: block;
+    margin-bottom: 4px;
+}
+.install-step-text {
+    font-size: 0.78em;
+    color: #cbd5e1;
+    line-height: 1.4;
+}
+.install-step-text strong {
+    color: #a5b4fc;
+    display: block;
+}
+.platform-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+.platform-tab {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.8em;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.platform-tab.active {
+    background: rgba(99,102,241,0.25);
+    border-color: rgba(99,102,241,0.6);
+    color: #a5b4fc;
+    font-weight: 600;
+}
+
+/* ── Login styles ── */
 .login-container {
     max-width: 520px;
     margin: 40px auto;
@@ -202,107 +334,97 @@ if "user" not in st.session_state:
     border-radius: 18px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.4);
 }
-
-/* titre */
-.login-title {
-    text-align:center;
-    font-size:3em;
-    margin-bottom: 0;
-    color: #f8fafc;
-}
-
-/* sous-titre */
-.login-subtitle {
-    text-align:center;
-    color:#94a3b8;
-    margin-top: 8px;
-    margin-bottom: 24px;
-}
-
-/* bouton principal */
+.login-title { text-align:center; font-size:3em; margin-bottom: 0; color: #f8fafc; }
+.login-subtitle { text-align:center; color:#94a3b8; margin-top: 8px; margin-bottom: 24px; }
 div.stButton > button {
     background: linear-gradient(135deg, #e94560, #ff2e63);
-    color: white;
-    border: none;
-    border-radius: 12px;
-    padding: 12px 16px;
-    font-size: 1em;
-    font-weight: 600;
-    transition: 0.2s ease;
+    color: white; border: none; border-radius: 12px;
+    padding: 12px 16px; font-size: 1em; font-weight: 600; transition: 0.2s ease;
 }
-
-div.stButton > button:hover {
-    transform: translateY(-1px);
-    opacity: 0.95;
-}
-
-/* card install */
-.install-card {
-    background: #0b1220;
-    border: 1px solid #1f2937;
-    border-radius: 14px;
-    padding: 16px;
-    margin-bottom: 18px;
-    color: #e5e7eb;
-}
-
-.install-title {
-    font-weight: 700;
-    margin-bottom: 10px;
-}
-
-.install-text {
-    font-size: 0.9em;
-    color: #cbd5e1;
-    line-height: 1.6;
-}
+div.stButton > button:hover { transform: translateY(-1px); opacity: 0.95; }
 </style>
 """, unsafe_allow_html=True)
 
-    # =========================
-    # INSTALL HELP (MODERNE CARD)
-    # =========================
-    if "show_install_help" not in st.session_state:
-        st.session_state.show_install_help = False
-
+    # ── Install banner with JS-driven platform detection ──
     st.markdown("""
-<div class="install-card">
-    <div class="install-title">📲 Installer Athlé Bet</div>
-    <div class="install-text">
-        Ajoute l’application à ton écran d’accueil pour une expérience plus rapide ⚡
+<div class="install-banner" id="install-banner">
+    <div class="install-banner-top">
+        <span class="install-icon">📲</span>
+        <div>
+            <p class="install-heading">Installer Athlé Bet sur votre appareil</p>
+            <p class="install-sub">Accès rapide depuis l'écran d'accueil · Pas de navigateur</p>
+        </div>
+    </div>
+
+    <div class="platform-tabs" id="ptabs">
+        <span class="platform-tab" id="tab-ios" onclick="showPlatform('ios')">🍎 iPhone / iPad</span>
+        <span class="platform-tab" id="tab-android" onclick="showPlatform('android')">🤖 Android</span>
+        <span class="platform-tab" id="tab-desktop" onclick="showPlatform('desktop')">💻 PC / Mac</span>
+    </div>
+
+    <!-- iOS -->
+    <div class="install-steps" id="steps-ios" style="display:none">
+        <div class="install-step"><span class="install-step-num">⬆️</span><div class="install-step-text"><strong>1. Partager</strong>Bouton en bas de Safari</div></div>
+        <div class="install-step"><span class="install-step-num">🏠</span><div class="install-step-text"><strong>2. "Sur l'écran d'accueil"</strong>Défiler dans le menu</div></div>
+        <div class="install-step"><span class="install-step-num">✅</span><div class="install-step-text"><strong>3. Ajouter</strong>Confirmer en haut à droite</div></div>
+    </div>
+
+    <!-- Android -->
+    <div class="install-steps" id="steps-android" style="display:none">
+        <div class="install-step"><span class="install-step-num">⋮</span><div class="install-step-text"><strong>1. Menu Chrome</strong>3 points en haut à droite</div></div>
+        <div class="install-step"><span class="install-step-num">📌</span><div class="install-step-text"><strong>2. "Ajouter à l'écran d'accueil"</strong>Dans la liste</div></div>
+        <div class="install-step"><span class="install-step-num">✅</span><div class="install-step-text"><strong>3. Installer</strong>Confirmer la popup</div></div>
+    </div>
+
+    <!-- Desktop -->
+    <div class="install-steps" id="steps-desktop" style="display:none">
+        <div class="install-step"><span class="install-step-num">🔲</span><div class="install-step-text"><strong>1. Icône d'install</strong>Dans la barre d'adresse</div></div>
+        <div class="install-step"><span class="install-step-num">📥</span><div class="install-step-text"><strong>2. "Installer"</strong>Cliquer sur le bouton</div></div>
+        <div class="install-step"><span class="install-step-num">🚀</span><div class="install-step-text"><strong>3. Prêt !</strong>App dans vos programmes</div></div>
     </div>
 </div>
+
+<script>
+function showPlatform(p) {
+    ['ios','android','desktop'].forEach(function(id) {
+        document.getElementById('steps-' + id).style.display = (id === p) ? 'grid' : 'none';
+        var tab = document.getElementById('tab-' + id);
+        tab.classList.toggle('active', id === p);
+    });
+}
+
+// Auto-detect platform on load
+(function() {
+    var ua = navigator.userAgent || '';
+    var platform = 'desktop';
+    if (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) platform = 'ios';
+    else if (/Android/.test(ua)) platform = 'android';
+    showPlatform(platform);
+
+    // PWA install prompt for Android/Desktop Chrome
+    window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        window._deferredInstall = e;
+        var banner = document.getElementById('install-banner');
+        if (banner) {
+            var btn = document.createElement('button');
+            btn.textContent = '⚡ Installer maintenant';
+            btn.style.cssText = 'margin-top:14px;width:100%;padding:11px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;border:none;border-radius:10px;font-size:0.95em;font-weight:700;cursor:pointer;';
+            btn.onclick = function() {
+                window._deferredInstall.prompt();
+                window._deferredInstall.userChoice.then(function(r) {
+                    if (r.outcome === 'accepted') banner.style.display = 'none';
+                });
+            };
+            banner.appendChild(btn);
+        }
+    });
+})();
+</script>
 """, unsafe_allow_html=True)
 
-    colA, colB = st.columns([3, 1])
-
-    with colA:
-        if st.button("📌 Ajouter à l’écran d’accueil", use_container_width=True):
-            st.session_state.show_install_help = True
-
-    with colB:
-        if st.button("✖"):
-            st.session_state.show_install_help = False
-
-    if st.session_state.show_install_help:
-        st.info("""
-📱 **iPhone**
-• Bouton PARTAGER ⬆️  
-• “Sur l’écran d’accueil”
-
-📱 **Android**
-• Menu ⋮  
-• “Ajouter à l’écran d’accueil”
-
-💻 **PC**
-• Icône d’installation dans la barre du navigateur
-""")
-
-    # =========================
-    # LOGIN CARD
-    # =========================
+    # ── Login card ──
     st.markdown("<div class='login-container'>", unsafe_allow_html=True)
-
     st.markdown("<h1 class='login-title'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
     st.markdown("<p class='login-subtitle'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
 
@@ -315,22 +437,19 @@ div.stButton > button:hover {
                 "INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING",
                 (u.strip(),)
             )
-
         st.session_state.user = u.strip()
         st.query_params["u"] = u.strip()
-
         st.markdown(
             f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
             unsafe_allow_html=True
         )
-
         st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
-
     st.stop()
 
 current_user = st.session_state.user
+
 # =========================
 # SIDEBAR
 # =========================
@@ -574,7 +693,7 @@ elif page == "🎯 Pronostics":
                         st.rerun()
 
 # =========================
-# RÉSULTATS
+# RÉSULTATS (with auto PB update)
 # =========================
 elif page == "📊 Résultats":
     st.title("📊 Saisie des Résultats")
@@ -611,15 +730,42 @@ elif page == "📊 Résultats":
                         results[a["id"]] = st.number_input(label, value=val, min_value=0.0, step=0.01, key=f"res_{c['id']}_{a['id']}")
 
                     if st.form_submit_button("💾 Enregistrer les résultats", use_container_width=True):
+                        pb_updates = []  # collect PB improvement messages
+
                         with db() as conn:
                             cur = conn.cursor()
+
+                            # Save results
                             cur.executemany("""
                                 INSERT INTO results (competition_id,athlete_id,result)
                                 VALUES (%s,%s,%s)
                                 ON CONFLICT (competition_id,athlete_id) DO UPDATE SET result=EXCLUDED.result
                             """, [(c["id"], aid, res) for aid, res in results.items() if res > 0])
+
+                            # Auto-update PBs if result is better
+                            for a in ath:
+                                res_val = results.get(a["id"], 0.0)
+                                if res_val <= 0 or not a["discipline"]:
+                                    continue
+                                updated, old_pb, new_pb = maybe_update_pb(
+                                    cur, a["id"], a["discipline"], res_val
+                                )
+                                if updated:
+                                    name_str = f"{a['first_name']} {a['last_name']}"
+                                    if old_pb is None:
+                                        pb_updates.append(f"🆕 **{name_str}** — Premier PB en {a['discipline']} : **{new_pb:.2f}**")
+                                    else:
+                                        pb_updates.append(f"🏅 **{name_str}** — Nouveau PB en {a['discipline']} : {old_pb:.2f} → **{new_pb:.2f}**")
+
                         invalidate_cache()
                         st.success("✅ Résultats enregistrés !")
+
+                        if pb_updates:
+                            st.balloons()
+                            st.markdown("### 🎉 Nouveaux PBs !")
+                            for msg in pb_updates:
+                                st.markdown(msg)
+
                         st.rerun()
 
 # =========================
