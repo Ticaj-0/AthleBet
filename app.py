@@ -186,53 +186,58 @@ if "user" not in st.session_state:
     # BOUTON PIN ÉCRAN D’ACCUEIL (FIABLE)
     # =========================
     st.markdown("""
-<style>
-.pin-btn {
-    display: block;
-    width: 100%;
-    background: #e94560;
-    color: white;
-    border: none;
-    border-radius: 10px;
-    padding: 14px;
-    font-size: 1em;
-    font-weight: 600;
-    text-align: center;
-    cursor: pointer;
-    margin-bottom: 20px;
-}
-.pin-btn:active { opacity: 0.85; }
-</style>
-
-<button class="pin-btn" onclick="pinApp()">📌 Ajouter à l’écran d’accueil</button>
-
-<script>
-function pinApp() {
-    var ua = navigator.userAgent.toLowerCase();
-
-    if (/iphone|ipad|ipod/.test(ua)) {
-        alert(
-            "📱 iPhone / iPad :\\n\\n" +
-            "1. Appuie sur PARTAGER (⬆️)\\n" +
-            "2. 'Sur l’écran d’accueil'\\n" +
-            "3. Ajouter"
-        );
-    } 
-    else if (/android/.test(ua)) {
-        alert(
-            "📱 Android :\\n\\n" +
-            "Menu ⋮ → Ajouter à l’écran d’accueil"
-        );
-    } 
-    else {
-        alert(
-            "💻 Ordinateur :\\n\\n" +
-            "Chrome / Edge → icône 📥 dans la barre URL"
-        );
+    <style>
+    .pin-btn {
+        display: block;
+        width: 100%;
+        background: #e94560;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 14px;
+        font-size: 1em;
+        font-weight: 600;
+        text-align: center;
+        cursor: pointer;
+        margin-bottom: 20px;
     }
-}
-</script>
-""", unsafe_allow_html=True)
+    .pin-btn:active { opacity: 0.85; }
+    </style>
+    
+    <button class="pin-btn" id="pin-btn">📌 Ajouter à l’écran d’accueil</button>
+    
+    <script>
+    setTimeout(function() {
+        const btn = document.getElementById("pin-btn");
+        if (!btn) return;
+    
+        btn.addEventListener("click", function() {
+            var ua = navigator.userAgent.toLowerCase();
+    
+            if (/iphone|ipad|ipod/.test(ua)) {
+                alert(
+                    "📱 iPhone / iPad :\\n\\n" +
+                    "1. Appuie sur PARTAGER (⬆️)\\n" +
+                    "2. 'Sur l’écran d’accueil'\\n" +
+                    "3. Ajouter"
+                );
+            } 
+            else if (/android/.test(ua)) {
+                alert(
+                    "📱 Android :\\n\\n" +
+                    "Menu ⋮ → Ajouter à l’écran d’accueil"
+                );
+            } 
+            else {
+                alert(
+                    "💻 Ordinateur :\\n\\n" +
+                    "Chrome / Edge → icône 📥 dans la barre URL"
+                );
+            }
+        });
+    }, 500);
+    </script>
+    """, unsafe_allow_html=True)
 
     # ── FORMULAIRE DE LOGIN ──
     col1, col2, col3 = st.columns([1, 2, 1])
