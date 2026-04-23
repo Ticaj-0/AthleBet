@@ -312,60 +312,20 @@ if "user" not in st.session_state:
     # =========================
     
     st.markdown("""
-    <style>
-    .install-banner {
-        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-        border: 1px solid rgba(99,102,241,0.4);
-        border-radius: 16px;
-        padding: 18px;
-        margin-bottom: 20px;
-        color: #e2e8f0;
-        font-family: 'DM Sans', sans-serif;
-    }
-    .install-title {
-        font-size: 1.1em;
-        font-weight: 700;
-        margin-bottom: 6px;
-    }
-    .install-sub {
-        font-size: 0.85em;
-        color: #94a3b8;
-        margin-bottom: 14px;
-    }
-    .step {
-        background: rgba(255,255,255,0.05);
-        border-radius: 10px;
-        padding: 10px;
-        margin-bottom: 8px;
-        font-size: 0.85em;
-    }
-    .step strong {
-        color: #a5b4fc;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
     <div class="install-banner">
         <div class="install-title">📲 Installer Athlé Bet</div>
         <div class="install-sub">Ajoute l'app à ton écran d'accueil pour un accès rapide</div>
-    
-        <div class="step">
-            <strong>🍎 iPhone / iPad :</strong><br>
-            Bouton Partager ⬆ → "Sur l'écran d'accueil" → Ajouter
-        </div>
-    
-        <div class="step">
-            <strong>🤖 Android :</strong><br>
-            Menu ⋮ → "Ajouter à l'écran d'accueil"
-        </div>
-    
-        <div class="step">
-            <strong>💻 PC / Mac :</strong><br>
-            Icône d'installation dans la barre d'adresse Chrome / Edge
-        </div>
     </div>
     """, unsafe_allow_html=True)
+    
+    st.markdown("### 🍎 iPhone / iPad")
+    st.markdown("Bouton **Partager ⬆** → *Sur l'écran d'accueil* → **Ajouter**")
+    
+    st.markdown("### 🤖 Android")
+    st.markdown("Menu **⋮** → *Ajouter à l'écran d'accueil*")
+    
+    st.markdown("### 💻 PC / Mac")
+    st.markdown("Icône d'installation dans la barre d'adresse **Chrome / Edge**")
 
     # =========================
     # LOGIN CARD
