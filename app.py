@@ -195,7 +195,7 @@ if "user" not in st.session_state:
 <meta name="theme-color" content="#e94560">
 <script>
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/app/static/sw.js', {scope: '/'})
+    navigator.serviceWorker.register('sw.js')
         .catch(function(e) { console.warn('SW registration failed:', e); });
 }
 </script>
