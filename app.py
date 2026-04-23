@@ -196,9 +196,13 @@ def maybe_update_pb(cur, athlete_id: int, discipline: str, new_result: float):
 
 
 # =========================
-# AUTH — bloc unique
+# AUTH — bloc clean
 # =========================
 if "user" not in st.session_state:
+
+    # -------------------------
+    # Query param login
+    # -------------------------
     saved_user = st.query_params.get("u", "")
 
     if saved_user:
@@ -209,141 +213,159 @@ if "user" not in st.session_state:
                 st.session_state.user = saved_user
                 st.rerun()
 
-    # Auto-login via localStorage (une seule injection)
+    # -------------------------
+    # Auto-login via localStorage
+    # -------------------------
     st.markdown("""
-<script>
-(function () {
-    try {
-        var stored = localStorage.getItem('athle_bet_user');
-        if (!stored) return;
-        var params = new URLSearchParams(window.location.search);
-        if (params.get('u') === stored) return;
-        params.set('u', stored);
-        window.location.search = params.toString();
-    } catch (e) {}
-})();
-</script>
-""", unsafe_allow_html=True)
+    <script>
+    (function () {
+        try {
+            var stored = localStorage.getItem('athle_bet_user');
+            if (!stored) return;
+            var params = new URLSearchParams(window.location.search);
+            if (params.get('u') === stored) return;
+            params.set('u', stored);
+            window.location.search = params.toString();
+        } catch (e) {}
+    })();
+    </script>
+    """, unsafe_allow_html=True)
 
     # =========================
-    # INSTALL BANNER
+    # CSS GLOBAL (UN SEUL BLOC)
     # =========================
     st.markdown("""
-<style>
-.install-banner {
-    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-    border: 1px solid rgba(99,102,241,0.4);
-    border-radius: 16px;
-    padding: 18px;
-    margin-bottom: 20px;
-    color: #e2e8f0;
-    font-family: 'DM Sans', sans-serif;
-}
-.install-title {
-    font-size: 1.1em;
-    font-weight: 700;
-    margin-bottom: 6px;
-}
-.install-sub {
-    font-size: 0.85em;
-    color: #94a3b8;
-    margin-bottom: 14px;
-}
-.step {
-    background: rgba(255,255,255,0.05);
-    border-radius: 10px;
-    padding: 10px;
-    margin-bottom: 8px;
-    font-size: 0.85em;
-}
-.step strong {
-    color: #a5b4fc;
-}
-</style>
+    <style>
 
-<div class="install-banner">
-    <div class="install-title">📲 Installer Athlé Bet</div>
-    <div class="install-sub">Ajoute l'app à ton écran d'accueil pour un accès rapide</div>
-    <div class="step">
-        <strong>🍎 iPhone / iPad :</strong><br>
-        Bouton Partager ⬆ → "Sur l'écran d'accueil" → Ajouter
+    /* INSTALL BANNER */
+    .install-banner {
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        border: 1px solid rgba(99,102,241,0.4);
+        border-radius: 16px;
+        padding: 18px;
+        margin-bottom: 20px;
+        color: #e2e8f0;
+    }
+    .install-title {
+        font-size: 1.1em;
+        font-weight: 700;
+        margin-bottom: 6px;
+    }
+    .install-sub {
+        font-size: 0.85em;
+        color: #94a3b8;
+        margin-bottom: 14px;
+    }
+    .step {
+        background: rgba(255,255,255,0.05);
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 8px;
+        font-size: 0.85em;
+    }
+    .step strong {
+        color: #a5b4fc;
+    }
+
+    /* LOGIN */
+    .login-container {
+        max-width: 520px;
+        margin: 40px auto;
+        padding: 28px;
+        background: linear-gradient(145deg, #0f172a, #111827);
+        border: 1px solid #1f2937;
+        border-radius: 18px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .login-title {
+        text-align:center;
+        font-size:3em;
+        margin-bottom: 0;
+        color: #f8fafc;
+    }
+    .login-subtitle {
+        text-align:center;
+        color:#94a3b8;
+        margin-top: 8px;
+        margin-bottom: 24px;
+    }
+    div.stButton > button {
+        background: linear-gradient(135deg, #e94560, #ff2e63);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        padding: 12px 16px;
+        font-size: 1em;
+        font-weight: 600;
+        transition: 0.2s ease;
+    }
+    div.stButton > button:hover {
+        transform: translateY(-1px);
+        opacity: 0.95;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+
+    # =========================
+    # INSTALL BANNER (HTML SEUL)
+    # =========================
+    st.markdown("""
+    <div class="install-banner">
+        <div class="install-title">📲 Installer Athlé Bet</div>
+        <div class="install-sub">
+            Ajoute l'app à ton écran d'accueil pour un accès rapide
+        </div>
+
+        <div class="step">
+            <strong>🍎 iPhone / iPad :</strong><br>
+            Bouton Partager ⬆ → "Sur l'écran d'accueil" → Ajouter
+        </div>
+
+        <div class="step">
+            <strong>🤖 Android :</strong><br>
+            Menu ⋮ → "Ajouter à l'écran d'accueil"
+        </div>
+
+        <div class="step">
+            <strong>💻 PC / Mac :</strong><br>
+            Icône d'installation dans la barre d'adresse Chrome / Edge
+        </div>
     </div>
-    <div class="step">
-        <strong>🤖 Android :</strong><br>
-        Menu ⋮ → "Ajouter à l'écran d'accueil"
-    </div>
-    <div class="step">
-        <strong>💻 PC / Mac :</strong><br>
-        Icône d'installation dans la barre d'adresse Chrome / Edge
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
     # =========================
     # LOGIN CARD
     # =========================
-    st.markdown("""
-<style>
-.login-container {
-    max-width: 520px;
-    margin: 40px auto;
-    padding: 28px;
-    background: linear-gradient(145deg, #0f172a, #111827);
-    border: 1px solid #1f2937;
-    border-radius: 18px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
-}
-.login-title {
-    text-align:center;
-    font-size:3em;
-    margin-bottom: 0;
-    color: #f8fafc;
-}
-.login-subtitle {
-    text-align:center;
-    color:#94a3b8;
-    margin-top: 8px;
-    margin-bottom: 24px;
-}
-div.stButton > button {
-    background: linear-gradient(135deg, #e94560, #ff2e63);
-    color: white;
-    border: none;
-    border-radius: 12px;
-    padding: 12px 16px;
-    font-size: 1em;
-    font-weight: 600;
-    transition: 0.2s ease;
-}
-div.stButton > button:hover {
-    transform: translateY(-1px);
-    opacity: 0.95;
-}
-</style>
-""", unsafe_allow_html=True)
-
     st.markdown("<div class='login-container'>", unsafe_allow_html=True)
     st.markdown("<h1 class='login-title'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
     st.markdown("<p class='login-subtitle'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
 
     u = st.text_input("Ton pseudo", placeholder="Ex: SpeedDemon42")
 
-    if st.button("▶ Entrer dans l'arène", use_container_width=True) and u.strip():
-        with db() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING",
-                (u.strip(),)
+    if st.button("▶ Entrer dans l'arène", use_container_width=True):
+        if u.strip():
+            with db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO users (username) VALUES (%s) ON CONFLICT DO NOTHING",
+                    (u.strip(),)
+                )
+
+            st.session_state.user = u.strip()
+            st.query_params["u"] = u.strip()
+
+            st.markdown(
+                f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
+                unsafe_allow_html=True
             )
-        st.session_state.user = u.strip()
-        st.query_params["u"] = u.strip()
-        st.markdown(
-            f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
-            unsafe_allow_html=True
-        )
-        st.rerun()
+
+            st.rerun()
+        else:
+            st.warning("Entre un pseudo")
 
     st.markdown("</div>", unsafe_allow_html=True)
+
     st.stop()
 
 current_user = st.session_state.user
