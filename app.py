@@ -4,13 +4,7 @@ import psycopg2.extras
 import psycopg2.pool
 from datetime import datetime
 from contextlib import contextmanager
-DROP TABLE IF EXISTS users CASCADE;
-DROP TABLE IF EXISTS athletes CASCADE;
-DROP TABLE IF EXISTS athlete_pbs CASCADE;
-DROP TABLE IF EXISTS competitions CASCADE;
-DROP TABLE IF EXISTS competition_athletes CASCADE;
-DROP TABLE IF EXISTS predictions CASCADE;
-DROP TABLE IF EXISTS results CASCADE;
+
 st.set_page_config(page_title="Athlé Bet", page_icon="🏃", layout="wide")
 
 st.markdown("""
@@ -367,6 +361,23 @@ current_user = st.session_state.user
 # SIDEBAR
 # =========================
 with st.sidebar:
+        st.divider()
+    
+    if st.button("🧨 RESET BASE (DANGER)", type="primary"):
+        if st.checkbox("Je confirme vouloir tout supprimer"):
+            with db() as conn:
+                cur = conn.cursor()
+                cur.execute("TRUNCATE TABLE predictions CASCADE")
+                cur.execute("TRUNCATE TABLE results CASCADE")
+                cur.execute("TRUNCATE TABLE competition_athletes CASCADE")
+                cur.execute("TRUNCATE TABLE competitions CASCADE")
+                cur.execute("TRUNCATE TABLE athlete_pbs CASCADE")
+                cur.execute("TRUNCATE TABLE athletes CASCADE")
+                cur.execute("TRUNCATE TABLE users CASCADE")
+    
+            invalidate_cache()
+            st.success("🔥 Base totalement vidée")
+            st.rerun()
     st.markdown(f"## 👋 {current_user}")
     st.divider()
     page = st.radio("Navigation", [
