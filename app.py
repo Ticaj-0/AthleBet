@@ -161,7 +161,6 @@ def get_classement_data():
 if "user" not in st.session_state:
     saved_user = st.query_params.get("u", "")
 
-    # 🔐 Auto-login via URL
     if saved_user:
         with db() as conn:
             cur = conn.cursor()
@@ -170,7 +169,7 @@ if "user" not in st.session_state:
                 st.session_state.user = saved_user
                 st.rerun()
 
-    # 🔐 Auto-login via localStorage (Streamlit-safe injection)
+    # localStorage auto-login
     st.markdown("""
 <script>
 (function () {
@@ -189,75 +188,145 @@ if "user" not in st.session_state:
 """, unsafe_allow_html=True)
 
     # =========================
-    # INSTALL HELP (STREAMLIT SAFE)
+    # STYLE GLOBAL LOGIN MODERNE
+    # =========================
+    st.markdown("""
+<style>
+/* fond global login */
+.login-container {
+    max-width: 520px;
+    margin: 40px auto;
+    padding: 28px;
+    background: linear-gradient(145deg, #0f172a, #111827);
+    border: 1px solid #1f2937;
+    border-radius: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+
+/* titre */
+.login-title {
+    text-align:center;
+    font-size:3em;
+    margin-bottom: 0;
+    color: #f8fafc;
+}
+
+/* sous-titre */
+.login-subtitle {
+    text-align:center;
+    color:#94a3b8;
+    margin-top: 8px;
+    margin-bottom: 24px;
+}
+
+/* bouton principal */
+div.stButton > button {
+    background: linear-gradient(135deg, #e94560, #ff2e63);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 1em;
+    font-weight: 600;
+    transition: 0.2s ease;
+}
+
+div.stButton > button:hover {
+    transform: translateY(-1px);
+    opacity: 0.95;
+}
+
+/* card install */
+.install-card {
+    background: #0b1220;
+    border: 1px solid #1f2937;
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 18px;
+    color: #e5e7eb;
+}
+
+.install-title {
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+.install-text {
+    font-size: 0.9em;
+    color: #cbd5e1;
+    line-height: 1.6;
+}
+</style>
+""", unsafe_allow_html=True)
+
+    # =========================
+    # INSTALL HELP (MODERNE CARD)
     # =========================
     if "show_install_help" not in st.session_state:
         st.session_state.show_install_help = False
 
-    st.markdown("### 📲 Installer l’application")
+    st.markdown("""
+<div class="install-card">
+    <div class="install-title">📲 Installer Athlé Bet</div>
+    <div class="install-text">
+        Ajoute l’application à ton écran d’accueil pour une expérience plus rapide ⚡
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-    colA, colB = st.columns([2, 1])
+    colA, colB = st.columns([3, 1])
 
     with colA:
         if st.button("📌 Ajouter à l’écran d’accueil", use_container_width=True):
             st.session_state.show_install_help = True
 
     with colB:
-        if st.button("❌"):
+        if st.button("✖"):
             st.session_state.show_install_help = False
 
     if st.session_state.show_install_help:
         st.info("""
-📱 **iPhone / iPad**
-1. Appuie sur le bouton PARTAGER ⬆️  
-2. “Sur l’écran d’accueil”  
-3. Ajouter  
+📱 **iPhone**
+• Bouton PARTAGER ⬆️  
+• “Sur l’écran d’accueil”
 
 📱 **Android**
-1. Menu ⋮ (en haut à droite)  
-2. “Ajouter à l’écran d’accueil”  
+• Menu ⋮  
+• “Ajouter à l’écran d’accueil”
 
-💻 **Ordinateur**
-• Clique sur l’icône d’installation dans la barre du navigateur
+💻 **PC**
+• Icône d’installation dans la barre du navigateur
 """)
 
     # =========================
-    # LOGIN UI
+    # LOGIN CARD
     # =========================
-    col1, col2, col3 = st.columns([1, 2, 1])
+    st.markdown("<div class='login-container'>", unsafe_allow_html=True)
 
-    with col2:
-        st.markdown(
-            "<h1 style='text-align:center;font-size:3em;'>🏃 ATHLÉ BET</h1>",
-            unsafe_allow_html=True
-        )
+    st.markdown("<h1 class='login-title'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='login-subtitle'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
 
-        st.markdown(
-            "<p style='text-align:center;color:#666;'>Pronostique. Compète. Grimpe au classement.</p>",
-            unsafe_allow_html=True
-        )
+    u = st.text_input("Ton pseudo", placeholder="Ex: SpeedDemon42")
 
-        st.divider()
-
-        u = st.text_input("Choisis ton pseudo", placeholder="Ex: SpeedDemon42")
-
-        if st.button("▶ Entrer dans l'arène", use_container_width=True) and u.strip():
-            with db() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING",
-                    (u.strip(),)
-                )
-
-            st.session_state.user = u.strip()
-            st.query_params["u"] = u.strip()
-
-            st.markdown(
-                f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
-                unsafe_allow_html=True
+    if st.button("▶ Entrer dans l'arène", use_container_width=True) and u.strip():
+        with db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING",
+                (u.strip(),)
             )
 
-            st.rerun()
+        st.session_state.user = u.strip()
+        st.query_params["u"] = u.strip()
+
+        st.markdown(
+            f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
+            unsafe_allow_html=True
+        )
+
+        st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.stop()
 
