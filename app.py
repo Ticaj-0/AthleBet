@@ -308,19 +308,20 @@ if "user" not in st.session_state:
     """, unsafe_allow_html=True)
     
     # =========================
-    # INSTALL BANNER FIX FINAL
+    # INSTALL (VERSION EXPANDER)
     # =========================
     
-    st.markdown("""
-    <div class="install-banner">
-        <div class="install-title">📲 Installer Athlé Bet</div>
-        <div class="install-sub">Ajoute l'app à ton écran d'accueil pour un accès rapide</div>
+    with st.expander("📲 Installer Athlé Bet", expanded=False):
+        st.markdown("Ajoute l'app à ton écran d'accueil pour un accès rapide")
     
-        <div>🍎 <b>iPhone / iPad :</b> Bouton Partager ⬆ → "Sur l'écran d'accueil" → Ajouter</div>
-        <div>🤖 <b>Android :</b> Menu ⋮ → "Ajouter à l'écran d'accueil"</div>
-        <div>💻 <b>PC / Mac :</b> Icône d'installation dans la barre d'adresse Chrome / Edge</div>
-    </div>
-    """, unsafe_allow_html=True)
+        st.markdown("### 🍎 iPhone / iPad")
+        st.write("Bouton Partager ⬆ → Sur l'écran d'accueil → Ajouter")
+    
+        st.markdown("### 🤖 Android")
+        st.write("Menu ⋮ → Ajouter à l'écran d'accueil")
+    
+        st.markdown("### 💻 PC / Mac")
+        st.write("Icône d'installation dans la barre d'adresse Chrome / Edge")
 
     # =========================
     # LOGIN CARD
