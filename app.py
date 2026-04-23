@@ -4,7 +4,20 @@ import psycopg2.extras
 import psycopg2.pool
 from datetime import datetime
 from contextlib import contextmanager
-
+if st.button("🧹 Vider les données"):
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM predictions;
+            DELETE FROM results;
+            DELETE FROM competition_athletes;
+            DELETE FROM competitions;
+            DELETE FROM athlete_pbs;
+            DELETE FROM athletes;
+            DELETE FROM users;
+        """)
+    st.success("Données supprimées")
+    st.rerun()
 st.set_page_config(page_title="Athlé Bet", page_icon="🏃", layout="wide")
 
 st.markdown("""
