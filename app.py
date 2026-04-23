@@ -301,8 +301,7 @@ if "user" not in st.session_state:
         return;
     }
 
-    // Déjà dismissé
-    if (localStorage.getItem('pwa_dismissed')) return;
+
 
     var ua        = navigator.userAgent;
     var isIOS     = /iphone|ipad|ipod/i.test(ua);
@@ -375,7 +374,6 @@ if "user" not in st.session_state:
     window.addEventListener('appinstalled', function () {
         banner.style.display = 'none';
         installedBdg.style.display = 'block';
-        localStorage.removeItem('pwa_dismissed');
     });
 
     window.triggerInstall = function () {
@@ -394,7 +392,6 @@ if "user" not in st.session_state:
 
     window.dismissPwa = function () {
         banner.style.display = 'none';
-        localStorage.setItem('pwa_dismissed', '1');
     };
 })();
 </script>
