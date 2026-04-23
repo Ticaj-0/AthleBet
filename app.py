@@ -182,283 +182,55 @@ if "user" not in st.session_state:
 </script>
 """, unsafe_allow_html=True)
 
-    # ── MANIFEST PWA + SERVICE WORKER ─────────────────────────────────────
-    # Les fichiers manifest.json, sw.js et les icônes doivent être dans
-    # le dossier  static/  à la racine du projet Streamlit.
-    # Streamlit les sert automatiquement sous /app/static/
-    st.markdown("""
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#e94560">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-
-<link rel="apple-touch-icon" href="icon-192.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
-<meta name="apple-mobile-web-app-title" content="AthléBet">
-
-<script>
-console.log("PWA init");
-
-// =====================
-// SERVICE WORKER
-// =====================
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js')
-    .then(reg => console.log("SW OK", reg.scope))
-    .catch(err => console.error("SW FAIL", err));
-}
-
-// =====================
-// INSTALL PROMPT (ANDROID)
-// =====================
-let deferredPrompt = null;
-
-window.addEventListener('beforeinstallprompt', (e) => {
-    console.log("INSTALL PROMPT READY");
-    e.preventDefault();
-    deferredPrompt = e;
-
-    const btn = document.getElementById('pwa-install-btn');
-    if (btn) {
-        btn.style.display = 'inline-block';
-        btn.innerText = "📲 Installer maintenant";
-    }
-});
-
-// =====================
-// BOUTON INSTALL
-// =====================
-window.triggerInstall = async () => {
-    if (!deferredPrompt) {
-        alert("Utilise le menu ⋮ → Ajouter à l'écran d’accueil");
-        return;
-    }
-
-    deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    console.log("CHOICE:", choice);
-
-    deferredPrompt = null;
-};
-
-// DEBUG
-fetch('manifest.json')
-  .then(r => console.log("Manifest OK", r.status))
-  .catch(e => console.error("Manifest FAIL", e));
-
-</script>
-""", unsafe_allow_html=True)
-
-        # ── PWA INSTALL BANNER (affiché sur la page de login) ──────────────────
+    # =========================
+    # BOUTON PIN ÉCRAN D’ACCUEIL (FIABLE)
+    # =========================
     st.markdown("""
 <style>
-/* ── Banner principal ── */
-#pwa-banner {
-    display: none;
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-    border: 1.5px solid #e94560;
-    border-radius: 16px;
-    padding: 20px 22px 18px 22px;
-    margin: 0 auto 24px auto;
-    max-width: 480px;
-    font-family: 'DM Sans', sans-serif;
-    color: #f1f5f9;
-    animation: fadeInDown 0.4s ease;
-}
-@keyframes fadeInDown {
-    from { opacity: 0; transform: translateY(-16px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-/* ── En-tête ── */
-.pwa-header {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-bottom: 14px;
-}
-.pwa-app-icon {
-    width: 52px; height: 52px;
+.pin-btn {
+    display: block;
+    width: 100%;
     background: #e94560;
-    border-radius: 12px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 26px;
-    flex-shrink: 0;
-}
-.pwa-title-block {}
-.pwa-title { font-weight: 700; font-size: 1.1em; margin: 0 0 2px 0; }
-.pwa-subtitle { font-size: 0.82em; color: #94a3b8; margin: 0; }
-
-/* ── Étapes iOS ── */
-.pwa-steps {
-    background: rgba(255,255,255,0.05);
+    color: white;
+    border: none;
     border-radius: 10px;
-    padding: 12px 14px;
-    margin-bottom: 14px;
-    font-size: 0.85em;
-    line-height: 1.8;
-    color: #cbd5e1;
-}
-.pwa-steps span { color: #f1f5f9; font-weight: 600; }
-
-/* ── Boutons ── */
-.pwa-btn-row {
-    display: flex; gap: 10px; justify-content: flex-end;
-}
-.pwa-btn {
-    border: none; border-radius: 8px;
-    padding: 10px 20px; font-size: 0.9em; font-weight: 600;
-    cursor: pointer; font-family: 'DM Sans', sans-serif;
-    transition: opacity 0.15s;
-    min-height: 40px;
-}
-.pwa-btn:active { opacity: 0.8; }
-#pwa-install-btn { background: #e94560; color: white; }
-#pwa-dismiss-btn { background: #1e293b; color: #64748b; border: 1px solid #334155; }
-
-/* ── Badge "Déjà installé" ── */
-#pwa-installed-badge {
-    display: none;
-    background: rgba(34,197,94,0.12);
-    border: 1px solid rgba(34,197,94,0.3);
-    border-radius: 10px;
-    padding: 10px 16px;
-    font-size: 0.85em;
-    color: #86efac;
+    padding: 14px;
+    font-size: 1em;
+    font-weight: 600;
     text-align: center;
-    margin: 0 auto 20px auto;
-    max-width: 480px;
+    cursor: pointer;
+    margin-bottom: 20px;
 }
+.pin-btn:active { opacity: 0.85; }
 </style>
 
-<!-- Badge "déjà installé en PWA" -->
-<div id="pwa-installed-badge">
-    ✅ App déjà installée sur cet appareil
-</div>
-
-<!-- Bannière d'installation -->
-<div id="pwa-banner">
-    <div class="pwa-header">
-        <div class="pwa-app-icon">🏃</div>
-        <div class="pwa-title-block">
-            <div class="pwa-title">Installer Athlé Bet</div>
-            <div class="pwa-subtitle" id="pwa-platform-label">Disponible sur cet appareil</div>
-        </div>
-    </div>
-    <div class="pwa-steps" id="pwa-steps-text" style="display:none;"></div>
-    <div class="pwa-btn-row">
-        <button class="pwa-btn" id="pwa-dismiss-btn" onclick="dismissPwa()">Plus tard</button>
-        <button class="pwa-btn" id="pwa-install-btn" onclick="triggerInstall()">📲 Installer</button>
-    </div>
-</div>
+<button class="pin-btn" onclick="pinApp()">📌 Ajouter à l’écran d’accueil</button>
 
 <script>
-(function () {
-    var banner       = document.getElementById('pwa-banner');
-    var stepsEl      = document.getElementById('pwa-steps-text');
-    var platformEl   = document.getElementById('pwa-platform-label');
-    var installBtn   = document.getElementById('pwa-install-btn');
-    var installedBdg = document.getElementById('pwa-installed-badge');
-    var deferredPrompt = null;
+function pinApp() {
+    var ua = navigator.userAgent.toLowerCase();
 
-    // Déjà en mode PWA standalone
-    if (window.matchMedia('(display-mode: standalone)').matches ||
-        window.navigator.standalone === true) {
-        installedBdg.style.display = 'block';
-        return;
+    if (/iphone|ipad|ipod/.test(ua)) {
+        alert(
+            "📱 iPhone / iPad :\\n\\n" +
+            "1. Appuie sur PARTAGER (⬆️)\\n" +
+            "2. 'Sur l’écran d’accueil'\\n" +
+            "3. Ajouter"
+        );
+    } 
+    else if (/android/.test(ua)) {
+        alert(
+            "📱 Android :\\n\\n" +
+            "Menu ⋮ → Ajouter à l’écran d’accueil"
+        );
+    } 
+    else {
+        alert(
+            "💻 Ordinateur :\\n\\n" +
+            "Chrome / Edge → icône 📥 dans la barre URL"
+        );
     }
-
-
-
-    var ua        = navigator.userAgent;
-    var isIOS     = /iphone|ipad|ipod/i.test(ua);
-    var isSafari  = /^((?!chrome|android).)*safari/i.test(ua);
-    var isAndroid = /android/i.test(ua);
-    var isChrome  = /chrome/i.test(ua) && !/edge/i.test(ua);
-    var isFirefox = /firefox/i.test(ua);
-    var isEdge    = /edg\//i.test(ua);
-    var isSamsung = /samsungbrowser/i.test(ua);
-
-    if (isIOS && isSafari) {
-        // iOS Safari : instructions manuelles
-        platformEl.textContent = 'iPhone / iPad · Safari';
-        stepsEl.innerHTML =
-            '1. Appuyez sur <span>Partager</span> <span style="font-size:1.1em;">⬆</span> dans la barre Safari<br>' +
-            '2. Faites défiler et choisissez <span>« Sur l\'écran d\'accueil »</span><br>' +
-            '3. Confirmez avec <span>Ajouter</span>';
-        stepsEl.style.display = 'block';
-        installBtn.style.display = 'none';
-        banner.style.display = 'block';
-
-    } else if (isIOS && !isSafari) {
-        // iOS Chrome/Firefox : doit ouvrir dans Safari
-        platformEl.textContent = 'iPhone / iPad';
-        stepsEl.innerHTML =
-            '⚠️ L\'installation nécessite <span>Safari</span>.<br>' +
-            'Ouvre cette page dans Safari puis utilise <span>Partager → Sur l\'écran d\'accueil</span>.';
-        stepsEl.style.display = 'block';
-        installBtn.style.display = 'none';
-        banner.style.display = 'block';
-
-    } else if (isAndroid && (isChrome || isEdge || isSamsung)) {
-        // Android : afficher immédiatement avec instructions manuelles
-        platformEl.textContent = 'Android · Chrome';
-        stepsEl.innerHTML = 'Menu <span>⋮</span> (en haut à droite) → <span>Ajouter à l\'écran d\'accueil</span>';
-        stepsEl.style.display = 'block';
-        installBtn.style.display = 'none';
-        banner.style.display = 'block';
-
-        // Si le prompt natif est dispo, on propose le bouton en remplacement
-        window.addEventListener('beforeinstallprompt', function (e) {
-            e.preventDefault();
-            deferredPrompt = e;
-            stepsEl.style.display = 'none';
-            installBtn.style.display = 'inline-block';
-            installBtn.textContent = '📲 Installer maintenant';
-            platformEl.textContent = 'Android · Installation en un tap';
-        });
-
-    } else if (isFirefox) {
-        platformEl.textContent = 'Firefox';
-        stepsEl.innerHTML = 'Dans Firefox : menu <span>⋮</span> → <span>« Installer »</span>';
-        stepsEl.style.display = 'block';
-        installBtn.style.display = 'none';
-        banner.style.display = 'block';
-
-    } else {
-        // Desktop Chrome / Edge / autres
-        platformEl.textContent = 'Desktop · Chrome / Edge';
-        window.addEventListener('beforeinstallprompt', function (e) {
-            e.preventDefault();
-            deferredPrompt = e;
-            banner.style.display = 'block';
-        });
-    }
-
-    // Écouteur : une fois installé, remplacer par le badge
-    window.addEventListener('appinstalled', function () {
-        banner.style.display = 'none';
-        installedBdg.style.display = 'block';
-    });
-
-    window.triggerInstall = function () {
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then(function (result) {
-                deferredPrompt = null;
-                if (result.outcome === 'accepted') {
-                    banner.style.display = 'none';
-                } 
-            });
-        } else {
-            banner.style.display = 'none';
-        }
-    };
-
-    window.dismissPwa = function () {
-        banner.style.display = 'none';
-    };
-})();
+}
 </script>
 """, unsafe_allow_html=True)
 
