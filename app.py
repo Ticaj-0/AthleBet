@@ -808,24 +808,3 @@ elif page == "🏆 Classement":
                 last_rows = rows_to_dicts(cur.fetchall())
             for j, row in enumerate(last_rows, 1):
                 st.write(f"{medals.get(j,'#'+str(j))} **{row['username']}** — {row['pts']} pts sur cette compétition")
-
-# =========================
-# RESET TEMPORAIRE (À SUPPRIMER APRÈS USAGE)
-# =========================
-
-def reset_database_once():
-    with db() as conn:
-        cur = conn.cursor()
-
-        cur.execute("TRUNCATE TABLE predictions CASCADE")
-        cur.execute("TRUNCATE TABLE results CASCADE")
-        cur.execute("TRUNCATE TABLE competition_athletes CASCADE")
-        cur.execute("TRUNCATE TABLE competitions CASCADE")
-        cur.execute("TRUNCATE TABLE athlete_pbs CASCADE")
-        cur.execute("TRUNCATE TABLE athletes CASCADE")
-        cur.execute("TRUNCATE TABLE users CASCADE")
-
-    st.success("🔥 RESET COMPLET EFFECTUÉ")
-
-reset_database_once()
-st.stop()
