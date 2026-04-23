@@ -1,87 +1,37 @@
 import streamlit as st
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 from datetime import datetime
 from contextlib import contextmanager
 
 st.set_page_config(page_title="Athlé Bet", page_icon="🏃", layout="wide")
 
-# =========================
-# STYLES
-# =========================
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-}
-
-h1, h2, h3 {
-    font-family: 'Bebas Neue', sans-serif;
-    letter-spacing: 1px;
-}
-
-section[data-testid="stSidebar"] {
-    background: #0f0f0f;
-    color: white;
-}
-
-section[data-testid="stSidebar"] * {
-    color: white !important;
-}
-
-.metric-card {
-    background: #1a1a2e;
-    border-left: 4px solid #e94560;
-    border-radius: 8px;
-    padding: 16px 20px;
-    margin-bottom: 10px;
-}
-
-.athlete-card {
-    background: #f8f9fa;
-    border-radius: 10px;
-    padding: 16px;
-    margin-bottom: 12px;
-    border: 1px solid #e0e0e0;
-}
-
-.podium-1 { color: #FFD700; font-weight: 700; font-size: 1.1em; }
-.podium-2 { color: #C0C0C0; font-weight: 700; }
-.podium-3 { color: #CD7F32; font-weight: 700; }
-
-.score-badge {
-    background: #e94560;
-    color: white;
-    border-radius: 20px;
-    padding: 2px 10px;
-    font-size: 0.85em;
-    font-weight: 600;
-}
-
-.stButton > button {
-    border-radius: 6px;
-    font-family: 'DM Sans', sans-serif;
-    font-weight: 500;
-}
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
+h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; }
+section[data-testid="stSidebar"] { background: #0f0f0f; color: white; }
+section[data-testid="stSidebar"] * { color: white !important; }
+.score-badge { background: #e94560; color: white; border-radius: 20px; padding: 2px 10px; font-size: 0.85em; font-weight: 600; }
+.stButton > button { border-radius: 6px; font-family: 'DM Sans', sans-serif; font-weight: 500; }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# DB — Supabase / PostgreSQL
-# =========================
-# Dans Streamlit Cloud, ajoutez dans Secrets :
-# [supabase]
-# url = "postgresql://postgres:[MOT_DE_PASSE]@db.[REF].supabase.co:5432/postgres"
-
+# OPT 1 — Pool de connexions persistant (cache_resource = 1 seul pool pour tout le serveur)
 @st.cache_resource
-def get_db_url():
-    return st.secrets["supabase"]["url"]
+def get_pool():
+    return psycopg2.pool.ThreadedConnectionPool(
+        minconn=1, maxconn=5,
+        dsn=st.secrets["supabase"]["url"],
+        cursor_factory=psycopg2.extras.RealDictCursor
+    )
 
 @contextmanager
 def db():
-    conn = psycopg2.connect(get_db_url(), cursor_factory=psycopg2.extras.RealDictCursor)
+    pool = get_pool()
+    conn = pool.getconn()
     try:
         yield conn
         conn.commit()
@@ -89,131 +39,138 @@ def db():
         conn.rollback()
         raise
     finally:
-        conn.close()
+        pool.putconn(conn)
 
+# OPT 2 — init_db une seule fois par session (pas à chaque changement de page)
 def init_db():
     with db() as conn:
         cur = conn.cursor()
-
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                username TEXT PRIMARY KEY
-            )
+            CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS athletes (id SERIAL PRIMARY KEY, first_name TEXT NOT NULL, last_name TEXT NOT NULL, age INTEGER);
+            CREATE TABLE IF NOT EXISTS athlete_pbs (athlete_id INTEGER, discipline TEXT, pb REAL, PRIMARY KEY (athlete_id, discipline), FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS competitions (id SERIAL PRIMARY KEY, name TEXT NOT NULL, date TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS competition_athletes (competition_id INTEGER, athlete_id INTEGER, discipline TEXT, PRIMARY KEY (competition_id, athlete_id), FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE, FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS predictions (username TEXT, competition_id INTEGER, athlete_id INTEGER, prediction REAL, PRIMARY KEY (username, competition_id, athlete_id), FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS results (competition_id INTEGER, athlete_id INTEGER, result REAL, PRIMARY KEY (competition_id, athlete_id), FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE);
         """)
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS athletes (
-                id         SERIAL PRIMARY KEY,
-                first_name TEXT NOT NULL,
-                last_name  TEXT NOT NULL,
-                age        INTEGER
-            )
-        """)
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS athlete_pbs (
-                athlete_id INTEGER,
-                discipline TEXT,
-                pb         REAL,
-                PRIMARY KEY (athlete_id, discipline),
-                FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
-            )
-        """)
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS competitions (
-                id   SERIAL PRIMARY KEY,
-                name TEXT NOT NULL,
-                date TEXT NOT NULL
-            )
-        """)
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS competition_athletes (
-                competition_id INTEGER,
-                athlete_id     INTEGER,
-                discipline     TEXT,
-                PRIMARY KEY (competition_id, athlete_id),
-                FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
-                FOREIGN KEY (athlete_id)     REFERENCES athletes(id)     ON DELETE CASCADE
-            )
-        """)
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS predictions (
-                username       TEXT,
-                competition_id INTEGER,
-                athlete_id     INTEGER,
-                prediction     REAL,
-                PRIMARY KEY (username, competition_id, athlete_id),
-                FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
-            )
-        """)
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS results (
-                competition_id INTEGER,
-                athlete_id     INTEGER,
-                result         REAL,
-                PRIMARY KEY (competition_id, athlete_id),
-                FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
-            )
-        """)
-
-        # Migration : ajout colonne discipline si absente
-        cur.execute("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'competition_athletes' AND column_name = 'discipline'
-        """)
+        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='competition_athletes' AND column_name='discipline'")
         if not cur.fetchone():
             cur.execute("ALTER TABLE competition_athletes ADD COLUMN discipline TEXT")
 
-init_db()
+if "db_initialized" not in st.session_state:
+    init_db()
+    st.session_state.db_initialized = True
 
-# =========================
-# UTILS
-# =========================
 def fmt(d):
     try:
-        return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
+        return datetime.strptime(str(d), "%Y-%m-%d").strftime("%d/%m/%Y")
     except (ValueError, TypeError):
         return str(d) if d else ""
 
 def score(p, r):
     d = abs(p - r)
-    if d == 0:
-        return 300
-    return max(0, int(150 - d * 4))
+    return 300 if d == 0 else max(0, int(150 - d * 4))
 
 def rows_to_dicts(rows):
     return [dict(r) for r in rows] if rows else []
 
+def invalidate_cache():
+    st.cache_data.clear()
+
+# OPT 3 — Données cachées (ttl=30s) : 0 requête DB entre deux reruns
+@st.cache_data(ttl=30)
 def get_all_athletes():
     with db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM athletes ORDER BY last_name, first_name")
         return rows_to_dicts(cur.fetchall())
 
+@st.cache_data(ttl=30)
 def get_all_competitions():
     with db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM competitions ORDER BY date DESC")
         return rows_to_dicts(cur.fetchall())
 
+# OPT 4 — Requêtes groupées : 1 requête pour TOUS les PBs / athlètes / historique
+@st.cache_data(ttl=30)
+def get_all_pbs():
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM athlete_pbs ORDER BY athlete_id, discipline")
+        rows = rows_to_dicts(cur.fetchall())
+    pbs = {}
+    for r in rows:
+        pbs.setdefault(r["athlete_id"], []).append(r)
+    return pbs
+
+@st.cache_data(ttl=30)
+def get_all_competition_athletes():
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ca.competition_id, ca.discipline, a.id, a.first_name, a.last_name
+            FROM competition_athletes ca
+            JOIN athletes a ON a.id = ca.athlete_id
+            ORDER BY ca.competition_id, a.last_name
+        """)
+        rows = rows_to_dicts(cur.fetchall())
+    grouped = {}
+    for r in rows:
+        grouped.setdefault(r["competition_id"], []).append(r)
+    return grouped
+
+@st.cache_data(ttl=30)
+def get_historique_data():
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.username, p.prediction, r.result, p.competition_id,
+                   a.first_name, a.last_name, ca.discipline
+            FROM predictions p
+            JOIN results r ON p.competition_id = r.competition_id AND p.athlete_id = r.athlete_id
+            JOIN athletes a ON a.id = p.athlete_id
+            JOIN competition_athletes ca ON ca.competition_id = p.competition_id AND ca.athlete_id = p.athlete_id
+            ORDER BY p.competition_id, a.last_name, p.username
+        """)
+        rows = rows_to_dicts(cur.fetchall())
+    grouped = {}
+    for r in rows:
+        grouped.setdefault(r["competition_id"], []).append(r)
+    return grouped
+
+@st.cache_data(ttl=30)
+def get_classement_data():
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT username FROM users")
+        users = rows_to_dicts(cur.fetchall())
+        cur.execute("""
+            SELECT DISTINCT c.id, c.name, c.date FROM competitions c
+            JOIN results r ON r.competition_id = c.id ORDER BY c.date ASC, c.id ASC
+        """)
+        comps = rows_to_dicts(cur.fetchall())
+        cur.execute("""
+            SELECT p.username, p.prediction, r.result, p.competition_id
+            FROM predictions p
+            JOIN results r ON p.competition_id = r.competition_id AND p.athlete_id = r.athlete_id
+        """)
+        scores = rows_to_dicts(cur.fetchall())
+    return users, comps, scores
+
 # =========================
-# AUTH + PERSISTANCE SESSION
+# AUTH
 # =========================
 if "user" not in st.session_state:
-
     saved_user = st.query_params.get("u", "")
     if saved_user:
         with db() as conn:
             cur = conn.cursor()
             cur.execute("SELECT 1 FROM users WHERE username = %s", (saved_user,))
-            exists = cur.fetchone()
-        if exists:
-            st.session_state.user = saved_user
-            st.rerun()
+            if cur.fetchone():
+                st.session_state.user = saved_user
+                st.rerun()
 
     st.markdown("""
 <script>
@@ -228,40 +185,21 @@ if "user" not in st.session_state:
 </script>
 """, unsafe_allow_html=True)
 
-    # --- Popup PWA install ---
     st.markdown("""
 <style>
-#pwa-popup {
-    display: none;
-    position: fixed;
-    bottom: 28px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #1e293b;
-    color: #f1f5f9;
-    border: 1.5px solid #e94560;
-    border-radius: 16px;
-    padding: 18px 24px;
-    z-index: 9999;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    max-width: 370px;
-    width: 90vw;
-    font-family: 'DM Sans', sans-serif;
-    animation: slideUp 0.4s ease;
-}
-@keyframes slideUp {
-    from { opacity:0; transform: translateX(-50%) translateY(30px); }
-    to   { opacity:1; transform: translateX(-50%) translateY(0); }
-}
+#pwa-popup { display:none; position:fixed; bottom:28px; left:50%; transform:translateX(-50%);
+    background:#1e293b; color:#f1f5f9; border:1.5px solid #e94560; border-radius:16px;
+    padding:18px 24px; z-index:9999; box-shadow:0 8px 32px rgba(0,0,0,0.4);
+    max-width:370px; width:90vw; font-family:'DM Sans',sans-serif; animation:slideUp 0.4s ease; }
+@keyframes slideUp { from{opacity:0;transform:translateX(-50%) translateY(30px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
 #pwa-popup .pwa-title { font-weight:700; font-size:1.05em; margin-bottom:6px; display:flex; align-items:center; gap:8px; }
 #pwa-popup .pwa-desc  { font-size:0.88em; color:#94a3b8; margin-bottom:14px; line-height:1.4; }
 #pwa-popup .pwa-steps { font-size:0.83em; color:#cbd5e1; margin-bottom:14px; line-height:1.7; }
 #pwa-popup .pwa-btn-row { display:flex; gap:10px; justify-content:flex-end; }
 #pwa-popup button { border:none; border-radius:8px; padding:7px 16px; font-size:0.88em; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
-#pwa-install-btn  { background:#e94560; color:white; }
-#pwa-dismiss-btn  { background:#334155; color:#94a3b8; }
+#pwa-install-btn { background:#e94560; color:white; }
+#pwa-dismiss-btn { background:#334155; color:#94a3b8; }
 </style>
-
 <div id="pwa-popup">
     <div class="pwa-title">📲 Installer Athlé Bet</div>
     <div class="pwa-desc">Ajoutez l'app sur votre écran d'accueil pour y accéder comme une vraie application mobile.</div>
@@ -271,72 +209,37 @@ if "user" not in st.session_state:
         <button id="pwa-install-btn" onclick="triggerInstall()">Installer</button>
     </div>
 </div>
-
 <script>
 (function() {
     if (localStorage.getItem('pwa_dismissed')) return;
     if (window.matchMedia('(display-mode: standalone)').matches) return;
-
-    var popup   = document.getElementById('pwa-popup');
-    var stepsEl = document.getElementById('pwa-steps-text');
-    var deferredPrompt = null;
-    var ua       = navigator.userAgent;
-    var isIOS    = /iphone|ipad|ipod/i.test(ua);
-    var isSafari = /^((?!chrome|android).)*safari/i.test(ua);
-    var isAndroid = /android/i.test(ua);
-    var isChrome  = /chrome/i.test(ua) && !(/edge/i.test(ua));
-
-    if (isIOS && isSafari) {
-        stepsEl.innerHTML = '1. Appuyez sur <strong>Partager</strong> (&#9633;↑) dans Safari<br>2. Choisissez <strong>« Sur l\'écran d\'accueil »</strong><br>3. Confirmez avec <strong>Ajouter</strong>';
-        document.getElementById('pwa-install-btn').style.display = 'none';
-        popup.style.display = 'block';
-    } else if (isAndroid && isChrome) {
-        window.addEventListener('beforeinstallprompt', function(e) {
-            e.preventDefault();
-            deferredPrompt = e;
-            stepsEl.innerHTML = 'Appuyez sur <strong>Installer</strong> ci-dessous.';
-            popup.style.display = 'block';
-        });
-    } else {
-        stepsEl.innerHTML = 'Dans votre navigateur, cherchez l\'icône <strong>⊕</strong> dans la barre d\'adresse ou le menu → <strong>« Installer l\'application »</strong>.';
-        popup.style.display = 'block';
-    }
-
-    window.triggerInstall = function() {
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then(function() { deferredPrompt = null; popup.style.display = 'none'; });
-        } else { popup.style.display = 'none'; }
-    };
-    window.dismissPwa = function() {
-        popup.style.display = 'none';
-        localStorage.setItem('pwa_dismissed', '1');
-    };
+    var popup=document.getElementById('pwa-popup'),stepsEl=document.getElementById('pwa-steps-text');
+    var deferredPrompt=null,ua=navigator.userAgent;
+    var isIOS=/iphone|ipad|ipod/i.test(ua),isSafari=/^((?!chrome|android).)*safari/i.test(ua);
+    var isAndroid=/android/i.test(ua),isChrome=/chrome/i.test(ua)&&!(/edge/i.test(ua));
+    if(isIOS&&isSafari){stepsEl.innerHTML='1. Appuyez sur <strong>Partager</strong> (&#9633;\u2191) dans Safari<br>2. Choisissez <strong>\u00ab Sur l\'écran d\'accueil \u00bb</strong><br>3. Confirmez avec <strong>Ajouter</strong>';document.getElementById('pwa-install-btn').style.display='none';popup.style.display='block';}
+    else if(isAndroid&&isChrome){window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();deferredPrompt=e;stepsEl.innerHTML='Appuyez sur <strong>Installer</strong> ci-dessous.';popup.style.display='block';});}
+    else{stepsEl.innerHTML='Dans votre navigateur, cherchez l\'icône <strong>\u2295</strong> dans la barre d\'adresse ou le menu \u2192 <strong>\u00ab Installer l\'application \u00bb</strong>.';popup.style.display='block';}
+    window.triggerInstall=function(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt.userChoice.then(function(){deferredPrompt=null;popup.style.display='none';});}else{popup.style.display='none';}};
+    window.dismissPwa=function(){popup.style.display='none';localStorage.setItem('pwa_dismissed','1');};
 })();
 </script>
 """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<h1 style='text-align:center; font-size:3em;'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:#666;'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align:center;font-size:3em;'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;color:#666;'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
         st.divider()
         u = st.text_input("Choisis ton pseudo", placeholder="Ex: SpeedDemon42")
         if st.button("▶ Entrer dans l'arène", use_container_width=True) and u.strip():
             with db() as conn:
                 cur = conn.cursor()
-                cur.execute(
-                    "INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING",
-                    (u.strip(),)
-                )
+                cur.execute("INSERT INTO users (username) VALUES (%s) ON CONFLICT (username) DO NOTHING", (u.strip(),))
             st.session_state.user = u.strip()
             st.query_params["u"] = u.strip()
-            st.markdown(f"""
-<script>localStorage.setItem('athle_bet_user', '{u.strip()}');</script>
-""", unsafe_allow_html=True)
+            st.markdown(f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>", unsafe_allow_html=True)
             st.rerun()
-        if not u and st.session_state.get("_tried"):
-            st.warning("Merci d'entrer un pseudo.")
     st.stop()
 
 current_user = st.session_state.user
@@ -347,16 +250,10 @@ current_user = st.session_state.user
 with st.sidebar:
     st.markdown(f"## 👋 {current_user}")
     st.divider()
-
     page = st.radio("Navigation", [
-        "🎯 Pronostics",
-        "🏆 Classement",
-        "📜 Historique",
-        "👤 Athlètes",
-        "🏟️ Compétitions",
-        "📊 Résultats",
+        "🎯 Pronostics", "🏆 Classement", "📜 Historique",
+        "👤 Athlètes", "🏟️ Compétitions", "📊 Résultats",
     ], label_visibility="collapsed")
-
     st.divider()
     if st.button("🚪 Déconnexion", use_container_width=True):
         del st.session_state.user
@@ -376,15 +273,12 @@ if page == "👤 Athlètes":
             fn = c1.text_input("Prénom")
             ln = c2.text_input("Nom")
             age = c3.number_input("Âge", 10, 100, 20)
-            submitted = st.form_submit_button("Créer l'athlète", use_container_width=True)
-            if submitted:
+            if st.form_submit_button("Créer l'athlète", use_container_width=True):
                 if fn.strip() and ln.strip():
                     with db() as conn:
                         cur = conn.cursor()
-                        cur.execute(
-                            "INSERT INTO athletes (first_name, last_name, age) VALUES (%s, %s, %s)",
-                            (fn.strip(), ln.strip(), age)
-                        )
+                        cur.execute("INSERT INTO athletes (first_name, last_name, age) VALUES (%s,%s,%s)", (fn.strip(), ln.strip(), age))
+                    invalidate_cache()
                     st.success(f"✅ {fn} {ln} ajouté(e) !")
                     st.rerun()
                 else:
@@ -392,41 +286,33 @@ if page == "👤 Athlètes":
 
     st.divider()
     athletes = get_all_athletes()
+    all_pbs  = get_all_pbs()
 
     if not athletes:
-        st.info("Aucun athlète pour l'instant. Ajoutez-en un ci-dessus !")
+        st.info("Aucun athlète pour l'instant.")
     else:
         st.markdown(f"**{len(athletes)} athlète(s) enregistré(s)**")
-
         for a in athletes:
             with st.container():
                 col_info, col_btn = st.columns([5, 1])
-                with col_info:
-                    st.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
-                with col_btn:
-                    if st.button("🗑️", key=f"del_{a['id']}", help="Supprimer cet athlète"):
-                        st.session_state[f"confirm_del_{a['id']}"] = True
+                col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
+                if col_btn.button("🗑️", key=f"del_{a['id']}", help="Supprimer"):
+                    st.session_state[f"confirm_del_{a['id']}"] = True
 
                 if st.session_state.get(f"confirm_del_{a['id']}"):
-                    st.warning(f"⚠️ Supprimer **{a['first_name']} {a['last_name']}** ? Cette action est irréversible.")
+                    st.warning(f"⚠️ Supprimer **{a['first_name']} {a['last_name']}** ? Irréversible.")
                     cc1, cc2 = st.columns(2)
                     if cc1.button("✅ Confirmer", key=f"yes_{a['id']}"):
                         with db() as conn:
                             cur = conn.cursor()
-                            cur.execute("DELETE FROM athletes WHERE id = %s", (a['id'],))
+                            cur.execute("DELETE FROM athletes WHERE id=%s", (a['id'],))
+                        invalidate_cache()
                         st.rerun()
                     if cc2.button("❌ Annuler", key=f"no_{a['id']}"):
                         st.session_state[f"confirm_del_{a['id']}"] = False
                         st.rerun()
 
-                with db() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "SELECT * FROM athlete_pbs WHERE athlete_id = %s ORDER BY discipline",
-                        (a["id"],)
-                    )
-                    pbs = rows_to_dicts(cur.fetchall())
-
+                pbs = all_pbs.get(a["id"], [])
                 if pbs:
                     pb_cols = st.columns(min(len(pbs), 4))
                     for i, pb in enumerate(pbs):
@@ -438,47 +324,32 @@ if page == "👤 Athlètes":
                 if st.session_state.get(f"show_pb_{a['id']}"):
                     with st.form(f"pb_form_{a['id']}"):
                         st.markdown("**PBs existants**")
-                        inputs = []
-                        to_delete = []
+                        inputs, to_delete = [], []
                         for i, pb in enumerate(pbs):
                             c1, c2, c3 = st.columns([3, 2, 1])
                             d = c1.text_input("Discipline", pb["discipline"], key=f"d_{a['id']}_{i}")
                             v = c2.number_input("PB", value=float(pb["pb"]), key=f"v_{a['id']}_{i}")
-                            delete = c3.checkbox("🗑️", key=f"del_pb_{a['id']}_{i}", help="Supprimer ce PB")
-                            inputs.append((d, v, pb["discipline"]))
-                            if delete:
+                            if c3.checkbox("🗑️", key=f"del_pb_{a['id']}_{i}"):
                                 to_delete.append(pb["discipline"])
-
+                            inputs.append((d, v, pb["discipline"]))
                         st.markdown("**Nouveau PB**")
                         nc1, nc2 = st.columns(2)
                         new_d = nc1.text_input("Discipline", key=f"nd_{a['id']}")
                         new_v = nc2.number_input("PB", 0.0, key=f"nv_{a['id']}")
-
                         if st.form_submit_button("💾 Sauvegarder"):
                             with db() as conn:
                                 cur = conn.cursor()
-                                for orig_discipline in to_delete:
-                                    cur.execute(
-                                        "DELETE FROM athlete_pbs WHERE athlete_id = %s AND discipline = %s",
-                                        (a["id"], orig_discipline)
-                                    )
+                                for orig_d in to_delete:
+                                    cur.execute("DELETE FROM athlete_pbs WHERE athlete_id=%s AND discipline=%s", (a["id"], orig_d))
                                 for d, v, orig_d in inputs:
                                     if orig_d not in to_delete and d.strip():
-                                        cur.execute("""
-                                            INSERT INTO athlete_pbs (athlete_id, discipline, pb)
-                                            VALUES (%s, %s, %s)
-                                            ON CONFLICT (athlete_id, discipline) DO UPDATE SET pb = EXCLUDED.pb
-                                        """, (a["id"], d.strip(), v))
+                                        cur.execute("INSERT INTO athlete_pbs (athlete_id,discipline,pb) VALUES (%s,%s,%s) ON CONFLICT (athlete_id,discipline) DO UPDATE SET pb=EXCLUDED.pb", (a["id"], d.strip(), v))
                                 if new_d.strip():
-                                    cur.execute("""
-                                        INSERT INTO athlete_pbs (athlete_id, discipline, pb)
-                                        VALUES (%s, %s, %s)
-                                        ON CONFLICT (athlete_id, discipline) DO UPDATE SET pb = EXCLUDED.pb
-                                    """, (a["id"], new_d.strip(), new_v))
+                                    cur.execute("INSERT INTO athlete_pbs (athlete_id,discipline,pb) VALUES (%s,%s,%s) ON CONFLICT (athlete_id,discipline) DO UPDATE SET pb=EXCLUDED.pb", (a["id"], new_d.strip(), new_v))
+                            invalidate_cache()
                             st.session_state[f"show_pb_{a['id']}"] = False
                             st.success("PBs mis à jour !")
                             st.rerun()
-
                 st.divider()
 
 # =========================
@@ -488,108 +359,73 @@ elif page == "🏟️ Compétitions":
     st.title("🏟️ Compétitions")
 
     athletes = get_all_athletes()
-
     if not athletes:
-        st.warning("Ajoutez d'abord des athlètes avant de créer une compétition.")
+        st.warning("Ajoutez d'abord des athlètes.")
     else:
         with st.expander("➕ Nouvelle compétition", expanded=True):
-            name = st.text_input("Nom de la compétition")
-            date = st.date_input("Date")
-
-            options = {f"{a['first_name']} {a['last_name']}": a["id"] for a in athletes}
+            name     = st.text_input("Nom de la compétition")
+            date     = st.date_input("Date")
+            options  = {f"{a['first_name']} {a['last_name']}": a["id"] for a in athletes}
             selected = st.multiselect("Athlètes participants", list(options.keys()))
+            all_pbs  = get_all_pbs()
 
             athlete_disciplines = {}
             if selected:
                 st.markdown("**Discipline par athlète :**")
                 for s in selected:
                     aid = options[s]
-                    with db() as conn:
-                        cur = conn.cursor()
-                        cur.execute(
-                            "SELECT discipline FROM athlete_pbs WHERE athlete_id = %s ORDER BY discipline",
-                            (aid,)
-                        )
-                        pbs = rows_to_dicts(cur.fetchall())
-                    disc_list = [pb["discipline"] for pb in pbs]
-
+                    disc_list = [pb["discipline"] for pb in all_pbs.get(aid, [])]
                     col_name, col_disc = st.columns([2, 3])
                     col_name.markdown(f"**{s}**")
                     if disc_list:
-                        disc_list_with_other = disc_list + ["✏️ Autre..."]
-                        chosen = col_disc.selectbox("Discipline", disc_list_with_other, key=f"disc_{aid}")
+                        chosen = col_disc.selectbox("Discipline", disc_list + ["✏️ Autre..."], key=f"disc_{aid}")
                         if chosen == "✏️ Autre...":
-                            athlete_disciplines[aid] = st.text_input(
-                                f"Discipline personnalisée pour {s}", key=f"disc_custom_{aid}"
-                            )
+                            athlete_disciplines[aid] = st.text_input(f"Discipline personnalisée pour {s}", key=f"disc_custom_{aid}")
                         else:
                             athlete_disciplines[aid] = chosen
                     else:
-                        athlete_disciplines[aid] = col_disc.text_input(
-                            "Discipline (aucun PB enregistré)", key=f"disc_free_{aid}"
-                        )
+                        athlete_disciplines[aid] = col_disc.text_input("Discipline (aucun PB)", key=f"disc_free_{aid}")
 
             if st.button("🏟️ Créer la compétition") and name.strip() and selected:
-                all_filled = all(athlete_disciplines.get(options[s], "").strip() for s in selected)
-                if not all_filled:
+                if not all(athlete_disciplines.get(options[s], "").strip() for s in selected):
                     st.error("⚠️ Veuillez renseigner une discipline pour chaque athlète.")
                 else:
                     with db() as conn:
                         cur = conn.cursor()
-                        cur.execute(
-                            "INSERT INTO competitions (name, date) VALUES (%s, %s) RETURNING id",
-                            (name.strip(), date.strftime("%Y-%m-%d"))
-                        )
+                        cur.execute("INSERT INTO competitions (name,date) VALUES (%s,%s) RETURNING id", (name.strip(), date.strftime("%Y-%m-%d")))
                         cid = cur.fetchone()["id"]
-                        for s in selected:
-                            aid = options[s]
-                            disc = athlete_disciplines[aid].strip()
-                            cur.execute("""
-                                INSERT INTO competition_athletes (competition_id, athlete_id, discipline)
-                                VALUES (%s, %s, %s)
-                                ON CONFLICT (competition_id, athlete_id) DO NOTHING
-                            """, (cid, aid, disc))
-                    st.success(f"✅ Compétition **{name}** créée avec {len(selected)} athlète(s) !")
+                        cur.executemany(
+                            "INSERT INTO competition_athletes (competition_id,athlete_id,discipline) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                            [(cid, options[s], athlete_disciplines[options[s]].strip()) for s in selected]
+                        )
+                    invalidate_cache()
+                    st.success(f"✅ Compétition **{name}** créée !")
                     st.rerun()
 
     st.divider()
-    comps = get_all_competitions()
+    comps         = get_all_competitions()
+    comp_athletes = get_all_competition_athletes()
 
     if not comps:
         st.info("Aucune compétition créée.")
     else:
         st.markdown(f"**{len(comps)} compétition(s)**")
         for c in comps:
-            with db() as conn:
-                cur = conn.cursor()
-                cur.execute("""
-                    SELECT a.first_name, a.last_name, ca.discipline
-                    FROM competition_athletes ca
-                    JOIN athletes a ON a.id = ca.athlete_id
-                    WHERE ca.competition_id = %s
-                    ORDER BY a.last_name
-                """, (c["id"],))
-                ca_rows = rows_to_dicts(cur.fetchall())
-
+            ca_rows = comp_athletes.get(c["id"], [])
             col1, col2 = st.columns([5, 1])
             col1.markdown(f"**{c['name']}** — {fmt(c['date'])}  `{len(ca_rows)} athlète(s)`")
             if col2.button("🗑️", key=f"delcomp_{c['id']}", help="Supprimer"):
                 st.session_state[f"confirm_delcomp_{c['id']}"] = True
-
             if ca_rows:
-                detail = "  ".join([
-                    f"{r['first_name']} {r['last_name']} `{r['discipline'] or '—'}`"
-                    for r in ca_rows
-                ])
-                st.caption(detail)
-
+                st.caption("  ".join([f"{r['first_name']} {r['last_name']} `{r['discipline'] or '—'}`" for r in ca_rows]))
             if st.session_state.get(f"confirm_delcomp_{c['id']}"):
-                st.warning(f"⚠️ Supprimer **{c['name']}** et tous ses pronostics/résultats ?")
+                st.warning(f"⚠️ Supprimer **{c['name']}** et tous ses données ?")
                 cc1, cc2 = st.columns(2)
                 if cc1.button("✅ Confirmer", key=f"yescomp_{c['id']}"):
                     with db() as conn:
                         cur = conn.cursor()
-                        cur.execute("DELETE FROM competitions WHERE id = %s", (c["id"],))
+                        cur.execute("DELETE FROM competitions WHERE id=%s", (c["id"],))
+                    invalidate_cache()
                     st.rerun()
                 if cc2.button("❌ Annuler", key=f"nocomp_{c['id']}"):
                     st.session_state[f"confirm_delcomp_{c['id']}"] = False
@@ -603,7 +439,6 @@ elif page == "🎯 Pronostics":
     st.caption(f"Connecté en tant que **{current_user}**")
 
     comps = get_all_competitions()
-
     if not comps:
         st.info("Aucune compétition disponible.")
     else:
@@ -612,20 +447,12 @@ elif page == "🎯 Pronostics":
                 with db() as conn:
                     cur = conn.cursor()
                     cur.execute("""
-                        SELECT a.id, a.first_name, a.last_name,
-                               ca.discipline,
-                               p.prediction,
-                               pb.pb
+                        SELECT a.id, a.first_name, a.last_name, ca.discipline, p.prediction, pb.pb
                         FROM competition_athletes ca
                         JOIN athletes a ON a.id = ca.athlete_id
-                        LEFT JOIN predictions p
-                            ON p.athlete_id = a.id
-                            AND p.competition_id = %s
-                            AND p.username = %s
-                        LEFT JOIN athlete_pbs pb
-                            ON pb.athlete_id = a.id
-                            AND pb.discipline = ca.discipline
-                        WHERE ca.competition_id = %s
+                        LEFT JOIN predictions p ON p.athlete_id=a.id AND p.competition_id=%s AND p.username=%s
+                        LEFT JOIN athlete_pbs pb ON pb.athlete_id=a.id AND pb.discipline=ca.discipline
+                        WHERE ca.competition_id=%s
                     """, (c["id"], current_user, c["id"]))
                     ath = rows_to_dicts(cur.fetchall())
 
@@ -638,35 +465,24 @@ elif page == "🎯 Pronostics":
                     predictions = {}
                     for a in ath:
                         val = float(a["prediction"]) if a["prediction"] is not None else 0.0
-                        disc = a["discipline"] or "—"
-                        pb_val = a["pb"]
-
                         col_name, col_disc, col_pb, col_input = st.columns([3, 2, 2, 2])
                         col_name.markdown(f"**{a['first_name']} {a['last_name']}**")
-                        col_disc.markdown(f"🏅 `{disc}`")
-                        if pb_val is not None:
-                            col_pb.metric("PB", f"{pb_val:.2f}", delta=None)
+                        col_disc.markdown(f"🏅 `{a['discipline'] or '—'}`")
+                        if a["pb"] is not None:
+                            col_pb.metric("PB", f"{a['pb']:.2f}", delta=None)
                         else:
                             col_pb.caption("Pas de PB")
-
-                        predictions[a["id"]] = col_input.number_input(
-                            "Prono",
-                            value=val,
-                            min_value=0.0,
-                            step=0.01,
-                            key=f"prono_{c['id']}_{a['id']}"
-                        )
+                        predictions[a["id"]] = col_input.number_input("Prono", value=val, min_value=0.0, step=0.01, key=f"prono_{c['id']}_{a['id']}")
 
                     if st.form_submit_button("💾 Sauvegarder tous mes pronostics", use_container_width=True):
                         with db() as conn:
                             cur = conn.cursor()
-                            for aid, pred in predictions.items():
-                                cur.execute("""
-                                    INSERT INTO predictions (username, competition_id, athlete_id, prediction)
-                                    VALUES (%s, %s, %s, %s)
-                                    ON CONFLICT (username, competition_id, athlete_id)
-                                    DO UPDATE SET prediction = EXCLUDED.prediction
-                                """, (current_user, c["id"], aid, pred))
+                            cur.executemany("""
+                                INSERT INTO predictions (username,competition_id,athlete_id,prediction)
+                                VALUES (%s,%s,%s,%s)
+                                ON CONFLICT (username,competition_id,athlete_id) DO UPDATE SET prediction=EXCLUDED.prediction
+                            """, [(current_user, c["id"], aid, pred) for aid, pred in predictions.items()])
+                        invalidate_cache()
                         st.success("✅ Pronostics enregistrés !")
                         st.rerun()
 
@@ -675,10 +491,8 @@ elif page == "🎯 Pronostics":
 # =========================
 elif page == "📊 Résultats":
     st.title("📊 Saisie des Résultats")
-    st.caption("Entrez les résultats officiels des compétitions.")
 
     comps = get_all_competitions()
-
     if not comps:
         st.info("Aucune compétition disponible.")
     else:
@@ -689,12 +503,9 @@ elif page == "📊 Résultats":
                     cur.execute("""
                         SELECT a.id, a.first_name, a.last_name, ca.discipline, r.result
                         FROM competition_athletes ca
-                        JOIN athletes a ON a.id = ca.athlete_id
-                        LEFT JOIN results r
-                            ON r.athlete_id = a.id
-                            AND r.competition_id = %s
-                        WHERE ca.competition_id = %s
-                        ORDER BY a.last_name
+                        JOIN athletes a ON a.id=ca.athlete_id
+                        LEFT JOIN results r ON r.athlete_id=a.id AND r.competition_id=%s
+                        WHERE ca.competition_id=%s ORDER BY a.last_name
                     """, (c["id"], c["id"]))
                     ath = rows_to_dicts(cur.fetchall())
 
@@ -707,26 +518,20 @@ elif page == "📊 Résultats":
                     results = {}
                     for a in ath:
                         val = float(a["result"]) if a["result"] is not None else 0.0
-                        disc = a["discipline"] or "—"
-                        label = f"{a['first_name']} {a['last_name']}  [{disc}]"
+                        label = f"{a['first_name']} {a['last_name']}  [{a['discipline'] or '—'}]"
                         if a["result"] is not None:
                             label += f"  ✅ (actuel: {a['result']})"
-                        results[a["id"]] = st.number_input(
-                            label, value=val, min_value=0.0, step=0.01,
-                            key=f"res_{c['id']}_{a['id']}"
-                        )
+                        results[a["id"]] = st.number_input(label, value=val, min_value=0.0, step=0.01, key=f"res_{c['id']}_{a['id']}")
 
                     if st.form_submit_button("💾 Enregistrer les résultats", use_container_width=True):
                         with db() as conn:
                             cur = conn.cursor()
-                            for aid, res in results.items():
-                                if res > 0:
-                                    cur.execute("""
-                                        INSERT INTO results (competition_id, athlete_id, result)
-                                        VALUES (%s, %s, %s)
-                                        ON CONFLICT (competition_id, athlete_id)
-                                        DO UPDATE SET result = EXCLUDED.result
-                                    """, (c["id"], aid, res))
+                            cur.executemany("""
+                                INSERT INTO results (competition_id,athlete_id,result)
+                                VALUES (%s,%s,%s)
+                                ON CONFLICT (competition_id,athlete_id) DO UPDATE SET result=EXCLUDED.result
+                            """, [(c["id"], aid, res) for aid, res in results.items() if res > 0])
+                        invalidate_cache()
                         st.success("✅ Résultats enregistrés !")
                         st.rerun()
 
@@ -737,43 +542,21 @@ elif page == "📜 Historique":
     st.title("📜 Historique")
 
     comps = get_all_competitions()
+    hist  = get_historique_data()
 
     if not comps:
         st.info("Aucune compétition disponible.")
     else:
         for c in comps:
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
-                with db() as conn:
-                    cur = conn.cursor()
-                    cur.execute("""
-                        SELECT p.username, p.prediction, r.result,
-                               a.first_name, a.last_name, ca.discipline
-                        FROM predictions p
-                        JOIN results r
-                            ON p.competition_id = r.competition_id
-                            AND p.athlete_id = r.athlete_id
-                        JOIN athletes a ON a.id = p.athlete_id
-                        JOIN competition_athletes ca
-                            ON ca.competition_id = p.competition_id
-                            AND ca.athlete_id = p.athlete_id
-                        WHERE p.competition_id = %s
-                        ORDER BY a.last_name, p.username
-                    """, (c["id"],))
-                    rows = rows_to_dicts(cur.fetchall())
-
+                rows = hist.get(c["id"], [])
                 if not rows:
-                    st.info("Aucun résultat disponible pour cette compétition.")
+                    st.info("Aucun résultat disponible.")
                     continue
-
                 headers = st.columns([2, 2, 2, 1, 1, 1])
-                headers[0].markdown("**Utilisateur**")
-                headers[1].markdown("**Athlète**")
-                headers[2].markdown("**Discipline**")
-                headers[3].markdown("**Prono**")
-                headers[4].markdown("**Résultat**")
-                headers[5].markdown("**Points**")
+                for h, label in zip(headers, ["**Utilisateur**","**Athlète**","**Discipline**","**Prono**","**Résultat**","**Points**"]):
+                    h.markdown(label)
                 st.divider()
-
                 for row in rows:
                     pts = score(row["prediction"], row["result"])
                     cols = st.columns([2, 2, 2, 1, 1, 1])
@@ -790,29 +573,8 @@ elif page == "📜 Historique":
 elif page == "🏆 Classement":
     st.title("🏆 Classement Général")
 
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT username FROM users")
-        all_users = rows_to_dicts(cur.fetchall())
-
-        cur.execute("""
-            SELECT DISTINCT c.id, c.name, c.date
-            FROM competitions c
-            JOIN results r ON r.competition_id = c.id
-            ORDER BY c.date ASC, c.id ASC
-        """)
-        comps_with_results = rows_to_dicts(cur.fetchall())
-
-        cur.execute("""
-            SELECT p.username, p.prediction, r.result, p.competition_id
-            FROM predictions p
-            JOIN results r
-                ON p.competition_id = r.competition_id
-                AND p.athlete_id = r.athlete_id
-        """)
-        all_scored_rows = rows_to_dicts(cur.fetchall())
-
-    usernames = [u_row["username"] for u_row in all_users]
+    all_users, comps_with_results, all_scored_rows = get_classement_data()
+    usernames = [u["username"] for u in all_users]
 
     def compute_scores(rows, exclude_comp_id=None):
         s = {u: 0 for u in usernames}
@@ -823,71 +585,48 @@ elif page == "🏆 Classement":
         return s
 
     def ranked(scores_map):
-        sorted_list = sorted(scores_map.items(), key=lambda x: -x[1])
-        ranks = {}
-        for i, (u, _) in enumerate(sorted_list, 1):
-            ranks[u] = i
-        return ranks
+        return {u: i for i, (u, _) in enumerate(sorted(scores_map.items(), key=lambda x: -x[1]), 1)}
 
-    scores_now = compute_scores(all_scored_rows)
+    scores_now    = compute_scores(all_scored_rows)
     sorted_scores = sorted(scores_now.items(), key=lambda x: -x[1])
+    last_comp     = comps_with_results[-1] if comps_with_results else None
 
-    last_comp = comps_with_results[-1] if comps_with_results else None
     if last_comp and len(comps_with_results) > 1:
-        scores_before = compute_scores(all_scored_rows, exclude_comp_id=last_comp["id"])
-        ranks_before = ranked(scores_before)
-        delta_label = f"vs avant « {last_comp['name']} »"
-    elif last_comp and len(comps_with_results) == 1:
+        ranks_before = ranked(compute_scores(all_scored_rows, exclude_comp_id=last_comp["id"]))
+        delta_label  = f"vs avant « {last_comp['name']} »"
+    elif last_comp:
         ranks_before = {u: 1 for u in usernames}
-        delta_label = f"vs avant « {last_comp['name']} »"
+        delta_label  = f"vs avant « {last_comp['name']} »"
     else:
         ranks_before = None
-        delta_label = None
+        delta_label  = None
 
     if not any(s > 0 for _, s in sorted_scores):
-        st.info("Aucun score encore calculé. Ajoutez des résultats dans **📊 Résultats**.")
-
+        st.info("Aucun score encore calculé.")
     if delta_label:
         st.caption(f"📊 Évolution {delta_label}")
 
-    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-
     CARD_TPL = (
         '<div style="background:{bg};border:2px solid {border};border-radius:12px;'
-        'padding:14px 22px;margin-bottom:10px;display:flex;'
-        'justify-content:space-between;align-items:center;'
-        'box-shadow:0 2px 8px rgba(0,0,0,0.18);">'
-        '<div style="display:flex;align-items:center;gap:10px;'
-        'color:{text_color};font-size:1.18em;">'
+        'padding:14px 22px;margin-bottom:10px;display:flex;justify-content:space-between;'
+        'align-items:center;box-shadow:0 2px 8px rgba(0,0,0,0.18);">'
+        '<div style="display:flex;align-items:center;gap:10px;color:{text_color};font-size:1.18em;">'
         '<span style="font-size:1.3em;">{rank_label}</span>'
         '<strong>{username}</strong>{me_badge}{delta_html}'
         '</div>'
-        '<div style="font-size:1.25em;font-weight:800;color:{pts_color};">'
-        '{total_score} pts</div>'
+        '<div style="font-size:1.25em;font-weight:800;color:{pts_color};">{total_score} pts</div>'
         '</div>'
     )
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
 
     for i, (username, total_score) in enumerate(sorted_scores, 1):
         is_me = username == current_user
-
         if i == 1:
-            bg         = "linear-gradient(135deg,#F9D423 0%,#F7971E 100%)"
-            border     = "#E6A817"
-            text_color = "#3d2000"
-            rank_label = "🥇"
-            badge_col  = "#5a3a00"
+            bg,border,text_color,rank_label,badge_col = "linear-gradient(135deg,#F9D423 0%,#F7971E 100%)","#E6A817","#3d2000","🥇","#5a3a00"
         elif i == 2:
-            bg         = "linear-gradient(135deg,#e0e0e0 0%,#9e9e9e 100%)"
-            border     = "#757575"
-            text_color = "#1a1a1a"
-            rank_label = "🥈"
-            badge_col  = "#444444"
+            bg,border,text_color,rank_label,badge_col = "linear-gradient(135deg,#e0e0e0 0%,#9e9e9e 100%)","#757575","#1a1a1a","🥈","#444444"
         elif i == 3:
-            bg         = "linear-gradient(135deg,#cd9b5a 0%,#8B5e2a 100%)"
-            border     = "#7a4f22"
-            text_color = "#fff0e0"
-            rank_label = "🥉"
-            badge_col  = "#c8a07a"
+            bg,border,text_color,rank_label,badge_col = "linear-gradient(135deg,#cd9b5a 0%,#8B5e2a 100%)","#7a4f22","#fff0e0","🥉","#c8a07a"
         else:
             bg         = "#2d3f5e" if is_me else "#1e293b"
             border     = "#FFD700" if is_me else "#334155"
@@ -895,47 +634,26 @@ elif page == "🏆 Classement":
             rank_label = "#" + str(i)
             badge_col  = "#94a3b8"
 
-        pts_color = (
-            "#3d2000" if i == 1 else
-            "#1a1a1a" if i == 2 else
-            "#fff0e0" if i == 3 else
-            "#e94560"
-        )
-
-        me_badge = (
-            '<span style="font-size:0.72em;color:{c};margin-left:6px;">(vous)</span>'
-            .format(c=badge_col)
-        ) if is_me else ""
+        pts_color  = "#3d2000" if i==1 else "#1a1a1a" if i==2 else "#fff0e0" if i==3 else "#e94560"
+        me_badge   = '<span style="font-size:0.72em;color:{c};margin-left:6px;">(vous)</span>'.format(c=badge_col) if is_me else ""
 
         if ranks_before is not None:
             prev_rank = ranks_before.get(username, len(usernames))
             delta = prev_rank - i
             if delta > 0:
-                delta_html = (
-                    '<span style="color:#22c55e;font-size:0.88em;font-weight:700;'
-                    'background:rgba(34,197,94,0.15);padding:1px 6px;border-radius:10px;">'
-                    '▲ +{d}</span>'.format(d=delta)
-                )
+                delta_html = '<span style="color:#22c55e;font-size:0.88em;font-weight:700;background:rgba(34,197,94,0.15);padding:1px 6px;border-radius:10px;">▲ +{d}</span>'.format(d=delta)
             elif delta < 0:
-                delta_html = (
-                    '<span style="color:#ef4444;font-size:0.88em;font-weight:700;'
-                    'background:rgba(239,68,68,0.15);padding:1px 6px;border-radius:10px;">'
-                    '▼ {d}</span>'.format(d=delta)
-                )
+                delta_html = '<span style="color:#ef4444;font-size:0.88em;font-weight:700;background:rgba(239,68,68,0.15);padding:1px 6px;border-radius:10px;">▼ {d}</span>'.format(d=delta)
             else:
                 delta_html = '<span style="color:#94a3b8;font-size:0.88em;padding:1px 6px;">—</span>'
         else:
             delta_html = ""
 
-        st.markdown(
-            CARD_TPL.format(
-                bg=bg, border=border, text_color=text_color,
-                rank_label=rank_label, username=username,
-                me_badge=me_badge, delta_html=delta_html,
-                pts_color=pts_color, total_score=total_score,
-            ),
-            unsafe_allow_html=True,
-        )
+        st.markdown(CARD_TPL.format(
+            bg=bg, border=border, text_color=text_color, rank_label=rank_label,
+            username=username, me_badge=me_badge, delta_html=delta_html,
+            pts_color=pts_color, total_score=total_score,
+        ), unsafe_allow_html=True)
 
     if last_comp:
         st.divider()
@@ -944,21 +662,12 @@ elif page == "🏆 Classement":
                 cur = conn.cursor()
                 cur.execute("""
                     SELECT p.username,
-                           SUM(CASE
-                               WHEN ABS(p.prediction - r.result) = 0 THEN 300
-                               ELSE GREATEST(0, FLOOR(150 - ABS(p.prediction - r.result) * 4)::int)
-                           END) as pts
+                           SUM(CASE WHEN ABS(p.prediction-r.result)=0 THEN 300
+                               ELSE GREATEST(0,FLOOR(150-ABS(p.prediction-r.result)*4)::int) END) as pts
                     FROM predictions p
-                    JOIN results r
-                        ON p.competition_id = r.competition_id
-                        AND p.athlete_id = r.athlete_id
-                    WHERE p.competition_id = %s
-                    GROUP BY p.username
-                    ORDER BY pts DESC
+                    JOIN results r ON p.competition_id=r.competition_id AND p.athlete_id=r.athlete_id
+                    WHERE p.competition_id=%s GROUP BY p.username ORDER BY pts DESC
                 """, (last_comp["id"],))
                 last_rows = rows_to_dicts(cur.fetchall())
-
-            if last_rows:
-                for j, row in enumerate(last_rows, 1):
-                    m = medals.get(j, f"#{j}")
-                    st.write(f"{m} **{row['username']}** — {row['pts']} pts sur cette compétition")
+            for j, row in enumerate(last_rows, 1):
+                st.write(f"{medals.get(j,'#'+str(j))} **{row['username']}** — {row['pts']} pts sur cette compétition")
