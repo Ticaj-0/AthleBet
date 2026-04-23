@@ -199,17 +199,53 @@ if "user" not in st.session_state:
 <script>
 console.log("PWA init");
 
-// Debug manifest
-fetch('manifest.json')
-  .then(r => console.log("Manifest OK", r.status))
-  .catch(e => console.error("Manifest FAIL", e));
-
-// Service Worker
+// =====================
+// SERVICE WORKER
+// =====================
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js')
     .then(reg => console.log("SW OK", reg.scope))
     .catch(err => console.error("SW FAIL", err));
 }
+
+// =====================
+// INSTALL PROMPT (ANDROID)
+// =====================
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    console.log("INSTALL PROMPT READY");
+    e.preventDefault();
+    deferredPrompt = e;
+
+    const btn = document.getElementById('pwa-install-btn');
+    if (btn) {
+        btn.style.display = 'inline-block';
+        btn.innerText = "📲 Installer maintenant";
+    }
+});
+
+// =====================
+// BOUTON INSTALL
+// =====================
+window.triggerInstall = async () => {
+    if (!deferredPrompt) {
+        alert("Utilise le menu ⋮ → Ajouter à l'écran d’accueil");
+        return;
+    }
+
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    console.log("CHOICE:", choice);
+
+    deferredPrompt = null;
+};
+
+// DEBUG
+fetch('manifest.json')
+  .then(r => console.log("Manifest OK", r.status))
+  .catch(e => console.error("Manifest FAIL", e));
+
 </script>
 """, unsafe_allow_html=True)
 
