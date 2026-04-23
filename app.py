@@ -233,96 +233,68 @@ if "user" not in st.session_state:
     # ─────────────────────────────────────────────
     # INSTALL BANNER — smart, platform-aware
     # ─────────────────────────────────────────────
-    st.markdown("""
+ua = st.session_state.get("ua", "")  # optionnel si tu veux détecter côté Python
+
+st.markdown("""
 <style>
-/* ── Install Banner ── */
 .install-banner {
-    position: relative;
-    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
     border: 1px solid rgba(99,102,241,0.4);
     border-radius: 16px;
-    padding: 18px 20px;
+    padding: 18px;
     margin-bottom: 20px;
-    overflow: hidden;
-}
-.install-banner::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(ellipse at top left, rgba(99,102,241,0.15) 0%, transparent 60%);
-    pointer-events: none;
-}
-.install-banner-top {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 14px;
-}
-.install-icon {
-    font-size: 2em;
-    line-height: 1;
-    flex-shrink: 0;
-}
-.install-heading {
-    font-size: 1.05em;
-    font-weight: 700;
     color: #e2e8f0;
-    margin: 0;
+    font-family: DM Sans;
 }
+
+.install-title {
+    font-size: 1.1em;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
 .install-sub {
-    font-size: 0.82em;
+    font-size: 0.85em;
     color: #94a3b8;
-    margin: 2px 0 0;
-}
-.install-steps {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    margin-top: 4px;
-}
-.install-step {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
-    padding: 10px 12px;
-    text-align: center;
-}
-.install-step-num {
-    font-size: 1.4em;
-    display: block;
-    margin-bottom: 4px;
-}
-.install-step-text {
-    font-size: 0.78em;
-    color: #cbd5e1;
-    line-height: 1.4;
-}
-.install-step-text strong {
-    color: #a5b4fc;
-    display: block;
-}
-.platform-tabs {
-    display: flex;
-    gap: 6px;
     margin-bottom: 14px;
-    flex-wrap: wrap;
 }
-.platform-tab {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 20px;
-    padding: 4px 12px;
-    font-size: 0.8em;
-    color: #94a3b8;
-    cursor: pointer;
-    transition: all 0.15s;
+
+.step {
+    background: rgba(255,255,255,0.05);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+    font-size: 0.85em;
 }
-.platform-tab.active {
-    background: rgba(99,102,241,0.25);
-    border-color: rgba(99,102,241,0.6);
+
+.step strong {
     color: #a5b4fc;
-    font-weight: 600;
 }
+</style>
+""", unsafe_allow_html=True)
+
+
+st.markdown("""
+<div class="install-banner">
+    <div class="install-title">📲 Installer Athlé Bet</div>
+    <div class="install-sub">Ajoute l’app à ton écran d’accueil pour un accès rapide</div>
+
+    <div class="step">
+        <strong>🍎 iPhone / iPad :</strong><br>
+        Bouton Partager ⬆ → “Sur l’écran d’accueil” → Ajouter
+    </div>
+
+    <div class="step">
+        <strong>🤖 Android :</strong><br>
+        Menu ⋮ → “Ajouter à l’écran d’accueil”
+    </div>
+
+    <div class="step">
+        <strong>💻 PC / Mac :</strong><br>
+        Icône d’installation dans la barre d’adresse Chrome / Edge
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 /* ── Login styles ── */
 .login-container {
