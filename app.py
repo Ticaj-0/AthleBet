@@ -306,7 +306,13 @@ if "user" not in st.session_state:
 
     </style>
     """, unsafe_allow_html=True)
-    
+
+    # =========================
+    # LOGIN CARD
+    # =========================
+    st.markdown("<h1 class='login-title'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='login-subtitle'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
+
     # =========================
     # INSTALL (VERSION EXPANDER)
     # =========================
@@ -322,13 +328,7 @@ if "user" not in st.session_state:
     
         st.markdown("### 💻 PC / Mac")
         st.write("Icône d'installation dans la barre d'adresse Chrome / Edge")
-
-    # =========================
-    # LOGIN CARD
-    # =========================
-    st.markdown("<h1 class='login-title'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
-    st.markdown("<p class='login-subtitle'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
-
+        
     u = st.text_input("Ton pseudo", placeholder="Ex: SpeedDemon42")
 
     if st.button("▶ Entrer dans l'arène", use_container_width=True):
