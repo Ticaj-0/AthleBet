@@ -361,7 +361,7 @@ current_user = st.session_state.user
 # SIDEBAR
 # =========================
 with st.sidebar:
-        st.divider()
+    st.divider()
     
     if st.button("🧨 RESET BASE (DANGER)", type="primary"):
         if st.checkbox("Je confirme vouloir tout supprimer"):
