@@ -187,7 +187,7 @@ if "user" not in st.session_state:
     # le dossier  static/  à la racine du projet Streamlit.
     # Streamlit les sert automatiquement sous /app/static/
     st.markdown("""
-<link rel="manifest" href="/app/static/manifest.json">
+<link rel="manifest" href="manifest.json">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="AthléBet">
