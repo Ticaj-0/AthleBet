@@ -258,7 +258,7 @@ if "user" not in st.session_state:
 
         st.divider()
 
-        u = st.text_input("Choisis ton pseudo", placeholder="Ex: SpeedDemon42")
+        u = st.text_input("Choisis ton pseudo", placeholder="Ex: Ticaj")
 
         if st.button("▶ Entrer dans l'arène", use_container_width=True) and u.strip():
             with db() as conn:
