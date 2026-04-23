@@ -160,6 +160,7 @@ def get_classement_data():
 # =========================
 if "user" not in st.session_state:
     saved_user = st.query_params.get("u", "")
+
     if saved_user:
         with db() as conn:
             cur = conn.cursor()
@@ -185,72 +186,51 @@ if "user" not in st.session_state:
 """, unsafe_allow_html=True)
 
     # =========================
-    # BOUTON PIN ÉCRAN D’ACCUEIL (ROBUSTE STREAMLIT)
+    # INSTALL INFO (REMPLACEMENT DU BOUTON PWA BUGGÉ)
     # =========================
     st.markdown("""
-<style>
-#pin-btn {
-    width: 100%;
-    background: #e94560;
-    color: white;
-    border: none;
-    border-radius: 10px;
-    padding: 14px;
-    font-size: 1em;
-    font-weight: 600;
-    cursor: pointer;
-    margin-bottom: 20px;
-}
-#pin-btn:active {
-    opacity: 0.85;
-    transform: scale(0.98);
-}
-</style>
+<div style="
+    background:#1e293b;
+    border:1px solid #334155;
+    border-radius:12px;
+    padding:14px 16px;
+    margin-bottom:18px;
+    color:#f1f5f9;
+    font-family:DM Sans, sans-serif;
+">
+    <div style="font-weight:700; margin-bottom:8px;">
+        📌 Ajouter Athlé Bet à l’écran d’accueil
+    </div>
 
-<button id="pin-btn">📌 Ajouter à l’écran d’accueil</button>
+    <div style="font-size:0.92em; line-height:1.6; color:#cbd5e1;">
+        <b>📱 iPhone / iPad :</b><br>
+        • Appuie sur le bouton <b>Partager ⬆️</b><br>
+        • Sélectionne <b>“Sur l’écran d’accueil”</b><br>
+        • Puis “Ajouter”
+        <br><br>
 
-<script>
-(function () {
-    const btn = document.getElementById("pin-btn");
-    if (!btn) return;
+        <b>📱 Android :</b><br>
+        • Clique sur le menu <b>⋮</b><br>
+        • Choisis <b>“Ajouter à l’écran d’accueil”</b>
+        <br><br>
 
-    btn.addEventListener("click", function () {
-        const ua = navigator.userAgent.toLowerCase();
-
-        if (ua.includes("iphone") || ua.includes("ipad") || ua.includes("ipod")) {
-            alert(
-                "📱 iOS :\\n\\n" +
-                "1. Appuie sur le bouton PARTAGER (⬆️)\\n" +
-                "2. Sélectionne 'Sur l’écran d’accueil'\\n" +
-                "3. Valide avec Ajouter"
-            );
-        }
-        else if (ua.includes("android")) {
-            alert(
-                "📱 Android :\\n\\n" +
-                "Menu ⋮ (en haut à droite)\\n" +
-                "→ Ajouter à l’écran d’accueil"
-            );
-        }
-        else {
-            alert(
-                "💻 Desktop :\\n\\n" +
-                "Dans Chrome / Edge :\\n" +
-                "icône d’installation dans la barre d’adresse"
-            );
-        }
-    });
-})();
-</script>
+        <b>💻 Ordinateur :</b><br>
+        • Clique sur l’icône d’installation dans la barre du navigateur
+    </div>
+</div>
 """, unsafe_allow_html=True)
 
-    # ── FORMULAIRE DE LOGIN ──
+    # =========================
+    # LOGIN FORM
+    # =========================
     col1, col2, col3 = st.columns([1, 2, 1])
+
     with col2:
         st.markdown(
             "<h1 style='text-align:center;font-size:3em;'>🏃 ATHLÉ BET</h1>",
             unsafe_allow_html=True
         )
+
         st.markdown(
             "<p style='text-align:center;color:#666;'>Pronostique. Compète. Grimpe au classement.</p>",
             unsafe_allow_html=True
@@ -270,16 +250,17 @@ if "user" not in st.session_state:
 
             st.session_state.user = u.strip()
             st.query_params["u"] = u.strip()
+
             st.markdown(
                 f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
                 unsafe_allow_html=True
             )
+
             st.rerun()
 
     st.stop()
 
 current_user = st.session_state.user
-
 # =========================
 # SIDEBAR
 # =========================
