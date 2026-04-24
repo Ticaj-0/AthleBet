@@ -347,7 +347,7 @@ if "user" not in st.session_state:
         st.markdown("### 💻 PC / Mac")
         st.write("Icône d'installation dans la barre d'adresse Chrome / Edge")
         
-    u = st.text_input("Ton pseudo", placeholder="Ex: Ticaj")
+    u = st.text_input("Ton pseudo", placeholder="Ex: Ticaj (Définitif)")
 
     if st.button("▶ Entrer dans l'arène", use_container_width=True):
         if u.strip():
