@@ -396,177 +396,175 @@ with st.sidebar:
 # =========================
 # ATHLÈTES
 # =========================
-
 if page == "👤 Athlètes":
-st.title("👤 Athlètes")
+    st.title("👤 Athlètes")
 
-# ─────────────────────────
-# AJOUT ATHLÈTE
-# ─────────────────────────
-with st.expander("➕ Ajouter un athlète", expanded=False):
-    with st.form("add_athlete"):
-        c1, c2, c3 = st.columns(3)
-        fn = c1.text_input("Prénom")
-        ln = c2.text_input("Nom")
-        age = c3.number_input("Âge", 10, 100, 20)
+    # ➕ AJOUT
+    with st.expander("➕ Ajouter un athlète", expanded=False):
+        with st.form("add_athlete"):
+            c1, c2, c3 = st.columns(3)
+            fn = c1.text_input("Prénom")
+            ln = c2.text_input("Nom")
+            age = c3.number_input("Âge", 10, 100, 20)
 
-        if st.form_submit_button("Créer l'athlète", use_container_width=True):
-            if fn.strip() and ln.strip():
-                with db() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "INSERT INTO athletes (first_name, last_name, age) VALUES (%s,%s,%s)",
-                        (fn.strip(), ln.strip(), age)
-                    )
-                invalidate_cache()
-                st.success(f"✅ {fn} {ln} ajouté(e) !")
-                st.rerun()
-            else:
-                st.error("Prénom et nom requis.")
-
-st.divider()
-
-athletes = get_all_athletes()
-all_pbs  = get_all_pbs()
-
-# ─────────────────────────
-# LISTE ATHLÈTES
-# ─────────────────────────
-if not athletes:
-    st.info("Aucun athlète pour l'instant.")
-else:
-    st.markdown(f"**{len(athletes)} athlète(s) enregistré(s)**")
-
-    for a in athletes:
-        with st.container():
-
-            # HEADER
-            col_info, col_actions = st.columns([5, 1])
-            col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
-
-            # ACTIONS
-            col_edit, col_del = col_actions.columns(2)
-
-            if col_edit.button("✏️", key=f"edit_age_{a['id']}", help="Modifier âge"):
-                st.session_state[f"show_age_{a['id']}"] = not st.session_state.get(f"show_age_{a['id']}", False)
-
-            if col_del.button("🗑️", key=f"del_{a['id']}", help="Supprimer"):
-                st.session_state[f"confirm_del_{a['id']}"] = True
-
-            # ─────────────────────────
-            # MODIFIER ÂGE
-            # ─────────────────────────
-            if st.session_state.get(f"show_age_{a['id']}"):
-                with st.form(f"age_form_{a['id']}"):
-                    new_age = st.number_input(
-                        "Nouvel âge",
-                        min_value=10,
-                        max_value=100,
-                        value=int(a["age"]),
-                        key=f"age_input_{a['id']}"
-                    )
-
-                    if st.form_submit_button("💾 Sauvegarder l'âge"):
-                        with db() as conn:
-                            cur = conn.cursor()
-                            cur.execute(
-                                "UPDATE athletes SET age=%s WHERE id=%s",
-                                (new_age, a["id"])
-                            )
-
-                        invalidate_cache()
-                        st.session_state[f"show_age_{a['id']}"] = False
-                        st.success("✅ Âge mis à jour !")
-                        st.rerun()
-
-            # ─────────────────────────
-            # SUPPRESSION
-            # ─────────────────────────
-            if st.session_state.get(f"confirm_del_{a['id']}"):
-                st.warning(f"⚠️ Supprimer **{a['first_name']} {a['last_name']}** ? Irréversible.")
-                cc1, cc2 = st.columns(2)
-
-                if cc1.button("✅ Confirmer", key=f"yes_{a['id']}"):
+            if st.form_submit_button("Créer l'athlète", use_container_width=True):
+                if fn.strip() and ln.strip():
                     with db() as conn:
                         cur = conn.cursor()
-                        cur.execute("DELETE FROM athletes WHERE id=%s", (a['id'],))
+                        cur.execute(
+                            "INSERT INTO athletes (first_name, last_name, age) VALUES (%s,%s,%s)",
+                            (fn.strip(), ln.strip(), age)
+                        )
                     invalidate_cache()
+                    st.success(f"✅ {fn} {ln} ajouté(e) !")
                     st.rerun()
+                else:
+                    st.error("Prénom et nom requis.")
 
-                if cc2.button("❌ Annuler", key=f"no_{a['id']}"):
-                    st.session_state[f"confirm_del_{a['id']}"] = False
-                    st.rerun()
+    st.divider()
 
-            # ─────────────────────────
-            # PBs
-            # ─────────────────────────
-            pbs = all_pbs.get(a["id"], [])
-            if pbs:
-                pb_cols = st.columns(min(len(pbs), 4))
-                for i, pb in enumerate(pbs):
-                    pb_cols[i % 4].metric(pb["discipline"], pb["pb"])
+    athletes = get_all_athletes()
+    all_pbs  = get_all_pbs()
 
-            # ─────────────────────────
-            # EDIT PB
-            # ─────────────────────────
-            if st.button("✏️ Gérer les PBs", key=f"edit_pb_{a['id']}"):
-                st.session_state[f"show_pb_{a['id']}"] = not st.session_state.get(f"show_pb_{a['id']}", False)
+    if not athletes:
+        st.info("Aucun athlète pour l'instant.")
+    else:
+        st.markdown(f"**{len(athletes)} athlète(s) enregistré(s)**")
 
-            if st.session_state.get(f"show_pb_{a['id']}"):
-                with st.form(f"pb_form_{a['id']}"):
-                    st.markdown("**PBs existants**")
+        for a in athletes:
+            with st.container():
 
-                    inputs, to_delete = [], []
+                # HEADER
+                col_info, col_btn = st.columns([5, 1])
+                col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
 
-                    for i, pb in enumerate(pbs):
-                        c1, c2, c3 = st.columns([3, 2, 1])
-                        d = c1.text_input("Discipline", pb["discipline"], key=f"d_{a['id']}_{i}")
-                        v = c2.number_input("PB", value=float(pb["pb"]), key=f"v_{a['id']}_{i}")
+                # SUPPRESSION
+                if col_btn.button("🗑️", key=f"del_{a['id']}"):
+                    st.session_state[f"confirm_del_{a['id']}"] = True
 
-                        if c3.checkbox("🗑️", key=f"del_pb_{a['id']}_{i}"):
-                            to_delete.append(pb["discipline"])
+                if st.session_state.get(f"confirm_del_{a['id']}"):
+                    st.warning(f"⚠️ Supprimer **{a['first_name']} {a['last_name']}** ?")
+                    c1, c2 = st.columns(2)
 
-                        inputs.append((d, v, pb["discipline"]))
-
-                    st.markdown("**Nouveau PB**")
-                    nc1, nc2 = st.columns(2)
-                    new_d = nc1.text_input("Discipline", key=f"nd_{a['id']}")
-                    new_v = nc2.number_input("PB", 0.0, key=f"nv_{a['id']}")
-
-                    if st.form_submit_button("💾 Sauvegarder"):
+                    if c1.button("✅ Confirmer", key=f"yes_{a['id']}"):
                         with db() as conn:
                             cur = conn.cursor()
+                            cur.execute("DELETE FROM athletes WHERE id=%s", (a['id'],))
+                        invalidate_cache()
+                        st.rerun()
 
-                            for orig_d in to_delete:
+                    if c2.button("❌ Annuler", key=f"no_{a['id']}"):
+                        st.session_state[f"confirm_del_{a['id']}"] = False
+                        st.rerun()
+
+                # ✏️ EDIT AGE
+                if st.button("✏️ Modifier l'âge", key=f"edit_age_{a['id']}"):
+                    st.session_state[f"edit_age_{a['id']}"] = not st.session_state.get(f"edit_age_{a['id']}", False)
+
+                if st.session_state.get(f"edit_age_{a['id']}"):
+                    with st.form(f"age_form_{a['id']}"):
+                        new_age = st.number_input(
+                            "Nouvel âge",
+                            min_value=10,
+                            max_value=100,
+                            value=int(a["age"]),
+                            key=f"age_input_{a['id']}"
+                        )
+
+                        if st.form_submit_button("💾 Enregistrer"):
+                            with db() as conn:
+                                cur = conn.cursor()
                                 cur.execute(
-                                    "DELETE FROM athlete_pbs WHERE athlete_id=%s AND discipline=%s",
-                                    (a["id"], orig_d)
+                                    "UPDATE athletes SET age=%s WHERE id=%s",
+                                    (new_age, a["id"])
                                 )
 
-                            for d, v, orig_d in inputs:
-                                if orig_d not in to_delete and d.strip():
+                            invalidate_cache()
+                            st.session_state[f"edit_age_{a['id']}"] = False
+                            st.success("Âge mis à jour !")
+                            st.rerun()
+
+                # PB DISPLAY
+                pbs = all_pbs.get(a["id"], [])
+                if pbs:
+                    pb_cols = st.columns(min(len(pbs), 4))
+                    for i, pb in enumerate(pbs):
+                        pb_cols[i % 4].metric(pb["discipline"], pb["pb"])
+
+                # ✏️ EDIT PB
+                if st.button("✏️ Gérer les PBs", key=f"edit_pb_{a['id']}"):
+                    st.session_state[f"show_pb_{a['id']}"] = not st.session_state.get(f"show_pb_{a['id']}", False)
+
+                if st.session_state.get(f"show_pb_{a['id']}"):
+                    with st.form(f"pb_form_{a['id']}"):
+
+                        st.markdown("**PBs existants**")
+
+                        inputs = []
+                        to_delete = []
+
+                        for i, pb in enumerate(pbs):
+                            c1, c2, c3 = st.columns([3, 2, 1])
+
+                            d = c1.text_input(
+                                "Discipline",
+                                pb["discipline"],
+                                key=f"d_{a['id']}_{i}"
+                            )
+
+                            v = c2.number_input(
+                                "PB",
+                                value=float(pb["pb"]),
+                                key=f"v_{a['id']}_{i}"
+                            )
+
+                            if c3.checkbox("🗑️", key=f"del_pb_{a['id']}_{i}"):
+                                to_delete.append(pb["discipline"])
+
+                            inputs.append((d, v, pb["discipline"]))
+
+                        st.markdown("**Nouveau PB**")
+                        nc1, nc2 = st.columns(2)
+
+                        new_d = nc1.text_input("Discipline", key=f"nd_{a['id']}")
+                        new_v = nc2.number_input("PB", 0.0, key=f"nv_{a['id']}")
+
+                        if st.form_submit_button("💾 Sauvegarder"):
+                            with db() as conn:
+                                cur = conn.cursor()
+
+                                # delete
+                                for orig_d in to_delete:
+                                    cur.execute(
+                                        "DELETE FROM athlete_pbs WHERE athlete_id=%s AND discipline=%s",
+                                        (a["id"], orig_d)
+                                    )
+
+                                # update
+                                for d, v, orig_d in inputs:
+                                    if orig_d not in to_delete and d.strip():
+                                        cur.execute("""
+                                            INSERT INTO athlete_pbs (athlete_id,discipline,pb)
+                                            VALUES (%s,%s,%s)
+                                            ON CONFLICT (athlete_id,discipline)
+                                            DO UPDATE SET pb=EXCLUDED.pb
+                                        """, (a["id"], d.strip(), v))
+
+                                # new
+                                if new_d.strip():
                                     cur.execute("""
                                         INSERT INTO athlete_pbs (athlete_id,discipline,pb)
                                         VALUES (%s,%s,%s)
                                         ON CONFLICT (athlete_id,discipline)
                                         DO UPDATE SET pb=EXCLUDED.pb
-                                    """, (a["id"], d.strip(), v))
+                                    """, (a["id"], new_d.strip(), new_v))
 
-                            if new_d.strip():
-                                cur.execute("""
-                                    INSERT INTO athlete_pbs (athlete_id,discipline,pb)
-                                    VALUES (%s,%s,%s)
-                                    ON CONFLICT (athlete_id,discipline)
-                                    DO UPDATE SET pb=EXCLUDED.pb
-                                """, (a["id"], new_d.strip(), new_v))
+                            invalidate_cache()
+                            st.session_state[f"show_pb_{a['id']}"] = False
+                            st.success("PBs mis à jour !")
+                            st.rerun()
 
-                        invalidate_cache()
-                        st.session_state[f"show_pb_{a['id']}"] = False
-                        st.success("PBs mis à jour !")
-                        st.rerun()
-
-            st.divider()
-
+                st.divider()
 # =========================
 # COMPÉTITIONS
 # =========================
