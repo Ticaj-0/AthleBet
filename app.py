@@ -436,19 +436,19 @@ if page == "👤 Athlètes":
 
                 # HEADER
                 col_info, col_actions = st.columns([5, 2])
-                
                 col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
-                
+
                 btn_edit, btn_delete = col_actions.columns(2)
-                
-                # ✏️ EDIT AGE
-                if btn_edit.button("✏️", key=f"edit_age_{a['id']}"):
+
+                # ✏️ EDIT AGE (UNIQUE)
+                if btn_edit.button("✏️", key=f"btn_edit_age_{a['id']}"):
                     st.session_state[f"edit_age_{a['id']}"] = not st.session_state.get(f"edit_age_{a['id']}", False)
-                
+
                 # 🗑️ DELETE
                 if btn_delete.button("🗑️", key=f"del_{a['id']}"):
                     st.session_state[f"confirm_del_{a['id']}"] = True
 
+                # CONFIRM DELETE
                 if st.session_state.get(f"confirm_del_{a['id']}"):
                     st.warning(f"⚠️ Supprimer **{a['first_name']} {a['last_name']}** ?")
                     c1, c2 = st.columns(2)
@@ -464,10 +464,7 @@ if page == "👤 Athlètes":
                         st.session_state[f"confirm_del_{a['id']}"] = False
                         st.rerun()
 
-                # ✏️ EDIT AGE
-                if st.button("✏️ Modifier l'âge", key=f"edit_age_{a['id']}"):
-                    st.session_state[f"edit_age_{a['id']}"] = not st.session_state.get(f"edit_age_{a['id']}", False)
-
+                # FORM EDIT AGE
                 if st.session_state.get(f"edit_age_{a['id']}"):
                     with st.form(f"age_form_{a['id']}"):
                         new_age = st.number_input(
@@ -498,7 +495,7 @@ if page == "👤 Athlètes":
                     for i, pb in enumerate(pbs):
                         pb_cols[i % 4].metric(pb["discipline"], pb["pb"])
 
-                # ✏️ EDIT PB
+                # EDIT PB
                 if st.button("✏️ Gérer les PBs", key=f"edit_pb_{a['id']}"):
                     st.session_state[f"show_pb_{a['id']}"] = not st.session_state.get(f"show_pb_{a['id']}", False)
 
@@ -513,17 +510,8 @@ if page == "👤 Athlètes":
                         for i, pb in enumerate(pbs):
                             c1, c2, c3 = st.columns([3, 2, 1])
 
-                            d = c1.text_input(
-                                "Discipline",
-                                pb["discipline"],
-                                key=f"d_{a['id']}_{i}"
-                            )
-
-                            v = c2.number_input(
-                                "PB",
-                                value=float(pb["pb"]),
-                                key=f"v_{a['id']}_{i}"
-                            )
+                            d = c1.text_input("Discipline", pb["discipline"], key=f"d_{a['id']}_{i}")
+                            v = c2.number_input("PB", value=float(pb["pb"]), key=f"v_{a['id']}_{i}")
 
                             if c3.checkbox("🗑️", key=f"del_pb_{a['id']}_{i}"):
                                 to_delete.append(pb["discipline"])
@@ -540,14 +528,12 @@ if page == "👤 Athlètes":
                             with db() as conn:
                                 cur = conn.cursor()
 
-                                # delete
                                 for orig_d in to_delete:
                                     cur.execute(
                                         "DELETE FROM athlete_pbs WHERE athlete_id=%s AND discipline=%s",
                                         (a["id"], orig_d)
                                     )
 
-                                # update
                                 for d, v, orig_d in inputs:
                                     if orig_d not in to_delete and d.strip():
                                         cur.execute("""
@@ -557,7 +543,6 @@ if page == "👤 Athlètes":
                                             DO UPDATE SET pb=EXCLUDED.pb
                                         """, (a["id"], d.strip(), v))
 
-                                # new
                                 if new_d.strip():
                                     cur.execute("""
                                         INSERT INTO athlete_pbs (athlete_id,discipline,pb)
