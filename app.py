@@ -401,12 +401,13 @@ if page == "👤 Athlètes":
 
     st.markdown("""
     <style>
-    /* Boutons icônes compacts */
-    div[data-testid="column"] button[kind="secondary"] {
-        padding: 0.25rem 0.5rem !important;
-        font-size: 0.9rem !important;
+    /* Réduit la largeur naturelle des boutons icônes */
+    div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] button {
+        padding: 0.2rem 0.6rem !important;
+        font-size: 0.85rem !important;
         min-height: 0 !important;
-        height: 2rem !important;
+        height: 1.8rem !important;
+        width: auto !important;
         border-radius: 8px !important;
     }
     </style>
@@ -447,19 +448,19 @@ if page == "👤 Athlètes":
         for a in athletes:
             with st.container():
 
-                # HEADER : nom à gauche, boutons ✏️ 🗑️ tout à droite
-                col_info, col_pen, col_trash = st.columns([6, 0.45, 0.45])
+                # HEADER : nom + boutons sur la même ligne
+                col_info, col_btns = st.columns([7, 1])
                 col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
 
-                if col_pen.button("✏️", key=f"edit_toggle_{a['id']}", use_container_width=True):
-                    st.session_state[f"edit_info_{a['id']}"] = not st.session_state.get(f"edit_info_{a['id']}", False)
-                    # Ferme la suppression si ouverte
-                    st.session_state[f"confirm_del_{a['id']}"] = False
+                with col_btns:
+                    b1, b2 = st.columns(2)
+                    if b1.button("✏️", key=f"edit_toggle_{a['id']}"):
+                        st.session_state[f"edit_info_{a['id']}"] = not st.session_state.get(f"edit_info_{a['id']}", False)
+                        st.session_state[f"confirm_del_{a['id']}"] = False
 
-                if col_trash.button("🗑️", key=f"del_{a['id']}", use_container_width=True):
-                    st.session_state[f"confirm_del_{a['id']}"] = True
-                    # Ferme l'édition si ouverte
-                    st.session_state[f"edit_info_{a['id']}"] = False
+                    if b2.button("🗑️", key=f"del_{a['id']}"):
+                        st.session_state[f"confirm_del_{a['id']}"] = True
+                        st.session_state[f"edit_info_{a['id']}"] = False
 
                 # ── FORMULAIRE ÉDITION (prénom / nom / âge) ──────────────────
                 if st.session_state.get(f"edit_info_{a['id']}"):
