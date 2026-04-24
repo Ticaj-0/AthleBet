@@ -399,6 +399,16 @@ with st.sidebar:
 if page == "👤 Athlètes":
     st.title("👤 Athlètes")
 
+    # STYLE boutons compacts
+    st.markdown("""
+    <style>
+    button[kind="secondary"] {
+        padding: 0.35rem 0.55rem;
+        border-radius: 8px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     # ➕ AJOUT
     with st.expander("➕ Ajouter un athlète", expanded=False):
         with st.form("add_athlete"):
@@ -435,18 +445,18 @@ if page == "👤 Athlètes":
             with st.container():
 
                 # HEADER
-                col_info, col_actions = st.columns([5, 2])
+                col_info, col_actions = st.columns([6, 2])
                 col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
 
-                btn_edit, btn_delete = col_actions.columns(2)
+                btn_edit, btn_delete = col_actions.columns([1, 1], gap="small")
 
-                # ✏️ EDIT AGE (UNIQUE)
-                if btn_edit.button("✏️", key=f"btn_edit_age_{a['id']}"):
-                    st.session_state[f"edit_age_{a['id']}"] = not st.session_state.get(f"edit_age_{a['id']}", False)
+                with btn_edit:
+                    if st.button("✏️", key=f"btn_edit_age_{a['id']}", use_container_width=True):
+                        st.session_state[f"edit_age_{a['id']}"] = not st.session_state.get(f"edit_age_{a['id']}", False)
 
-                # 🗑️ DELETE
-                if btn_delete.button("🗑️", key=f"del_{a['id']}"):
-                    st.session_state[f"confirm_del_{a['id']}"] = True
+                with btn_delete:
+                    if st.button("🗑️", key=f"del_{a['id']}", use_container_width=True):
+                        st.session_state[f"confirm_del_{a['id']}"] = True
 
                 # CONFIRM DELETE
                 if st.session_state.get(f"confirm_del_{a['id']}"):
@@ -464,7 +474,7 @@ if page == "👤 Athlètes":
                         st.session_state[f"confirm_del_{a['id']}"] = False
                         st.rerun()
 
-                # FORM EDIT AGE
+                # EDIT AGE
                 if st.session_state.get(f"edit_age_{a['id']}"):
                     with st.form(f"age_form_{a['id']}"):
                         new_age = st.number_input(
