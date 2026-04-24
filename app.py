@@ -399,6 +399,18 @@ with st.sidebar:
 if page == "👤 Athlètes":
     st.title("👤 Athlètes")
 
+    # Ordre d'affichage des disciplines
+    DISCIPLINE_ORDER = ["100m", "200m", "300m", "300mH", "400m", "400mH", "600m"]
+
+    def sort_pbs(pbs):
+        def sort_key(pb):
+            d = pb["discipline"]
+            try:
+                return DISCIPLINE_ORDER.index(d)
+            except ValueError:
+                return len(DISCIPLINE_ORDER)  # disciplines inconnues à la fin
+        return sorted(pbs, key=sort_key)
+
     # ➕ AJOUT
     with st.expander("➕ Ajouter un athlète", expanded=False):
         with st.form("add_athlete"):
@@ -512,8 +524,8 @@ if page == "👤 Athlètes":
                             st.session_state[f"confirm_del_{a['id']}"] = False
                             st.rerun()
 
-                # ── AFFICHAGE PBs ─────────────────────────────────────────────
-                pbs = all_pbs.get(a["id"], [])
+                # ── AFFICHAGE PBs (triés) ─────────────────────────────────────
+                pbs = sort_pbs(all_pbs.get(a["id"], []))
                 if pbs:
                     pb_cols = st.columns(min(len(pbs), 4))
                     for i, pb in enumerate(pbs):
