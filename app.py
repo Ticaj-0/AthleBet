@@ -435,11 +435,18 @@ if page == "👤 Athlètes":
             with st.container():
 
                 # HEADER
-                col_info, col_btn = st.columns([5, 1])
+                col_info, col_actions = st.columns([5, 2])
+                
                 col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
-
-                # SUPPRESSION
-                if col_btn.button("🗑️", key=f"del_{a['id']}"):
+                
+                btn_edit, btn_delete = col_actions.columns(2)
+                
+                # ✏️ EDIT AGE
+                if btn_edit.button("✏️", key=f"edit_age_{a['id']}"):
+                    st.session_state[f"edit_age_{a['id']}"] = not st.session_state.get(f"edit_age_{a['id']}", False)
+                
+                # 🗑️ DELETE
+                if btn_delete.button("🗑️", key=f"del_{a['id']}"):
                     st.session_state[f"confirm_del_{a['id']}"] = True
 
                 if st.session_state.get(f"confirm_del_{a['id']}"):
