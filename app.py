@@ -394,15 +394,12 @@ with st.sidebar:
         st.rerun()
 
 # =========================
-
 # ATHLÈTES
-
 # =========================
 
 if page == "👤 Athlètes":
 st.title("👤 Athlètes")
 
-```
 # ─────────────────────────
 # AJOUT ATHLÈTE
 # ─────────────────────────
@@ -569,7 +566,6 @@ else:
                         st.rerun()
 
             st.divider()
-```
 
 # =========================
 # COMPÉTITIONS
