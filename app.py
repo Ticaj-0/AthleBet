@@ -392,25 +392,22 @@ with st.sidebar:
         st.query_params.clear()
         st.markdown("<script>localStorage.removeItem('athle_bet_user');</script>", unsafe_allow_html=True)
         st.rerun()
-
+        
+DISCIPLINE_ORDER = ["100m", "200m", "300m", "300mH", "400m", "400mH", "600m"]
+ 
+def sort_pbs(pbs):
+    def sort_key(pb):
+        try:
+            return DISCIPLINE_ORDER.index(pb["discipline"])
+        except ValueError:
+            return len(DISCIPLINE_ORDER)  # disciplines inconnues à la fin
+    return sorted(pbs, key=sort_key)
 # =========================
 # ATHLÈTES
 # =========================
 if page == "👤 Athlètes":
     st.title("👤 Athlètes")
-
-    # Ordre d'affichage des disciplines
-    DISCIPLINE_ORDER = ["100m", "200m", "300m", "300mH", "400m", "400mH", "600m"]
-
-    def sort_pbs(pbs):
-        def sort_key(pb):
-            d = pb["discipline"]
-            try:
-                return DISCIPLINE_ORDER.index(d)
-            except ValueError:
-                return len(DISCIPLINE_ORDER)  # disciplines inconnues à la fin
-        return sorted(pbs, key=sort_key)
-
+ 
     # ➕ AJOUT
     with st.expander("➕ Ajouter un athlète", expanded=False):
         with st.form("add_athlete"):
@@ -418,7 +415,7 @@ if page == "👤 Athlètes":
             fn  = c1.text_input("Prénom")
             ln  = c2.text_input("Nom")
             age = c3.number_input("Âge", 10, 100, 20)
-
+ 
             if st.form_submit_button("Créer l'athlète", use_container_width=True):
                 if fn.strip() and ln.strip():
                     with db() as conn:
@@ -432,31 +429,31 @@ if page == "👤 Athlètes":
                     st.rerun()
                 else:
                     st.error("Prénom et nom requis.")
-
+ 
     st.divider()
-
+ 
     athletes = get_all_athletes()
     all_pbs  = get_all_pbs()
-
+ 
     if not athletes:
         st.info("Aucun athlète pour l'instant.")
     else:
         st.markdown(f"**{len(athletes)} athlète(s) enregistré(s)**")
-
+ 
         for a in athletes:
             with st.container():
-
+ 
                 # ── HEADER ────────────────────────────────────────────────────
                 col_info, col_btn = st.columns([8, 1])
                 col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
-
+ 
                 if col_btn.button("⚙️", key=f"options_{a['id']}"):
                     current = st.session_state.get(f"panel_{a['id']}", False)
                     st.session_state[f"panel_{a['id']}"] = not current
-
+ 
                 # ── PANNEAU OPTIONS (édition + suppression) ───────────────────
                 if st.session_state.get(f"panel_{a['id']}"):
-
+ 
                     with st.container():
                         st.markdown("""
                         <div style="
@@ -467,23 +464,22 @@ if page == "👤 Athlètes":
                             margin-bottom: 12px;
                         ">
                         """, unsafe_allow_html=True)
-
+ 
                         with st.form(f"edit_form_{a['id']}"):
                             st.markdown("##### ✏️ Modifier l'athlète")
-
+ 
                             ef1, ef2, ef3 = st.columns(3)
                             new_fn  = ef1.text_input("Prénom", value=a["first_name"])
                             new_ln  = ef2.text_input("Nom",    value=a["last_name"])
                             new_age = ef3.number_input("Âge", min_value=10, max_value=100, value=int(a["age"]))
-
+ 
                             st.markdown("---")
-
+ 
                             s1, s2, s3 = st.columns([2, 2, 1])
-
                             saved   = s1.form_submit_button("💾 Enregistrer", use_container_width=True)
                             closed  = s2.form_submit_button("✖ Fermer",       use_container_width=True)
                             deleted = s3.form_submit_button("🗑️",             use_container_width=True)
-
+ 
                             if saved:
                                 if new_fn.strip() and new_ln.strip():
                                     with db() as conn:
@@ -498,16 +494,16 @@ if page == "👤 Athlètes":
                                     st.rerun()
                                 else:
                                     st.error("Prénom et nom requis.")
-
+ 
                             if closed:
                                 st.session_state[f"panel_{a['id']}"] = False
                                 st.rerun()
-
+ 
                             if deleted:
                                 st.session_state[f"confirm_del_{a['id']}"] = True
-
+ 
                         st.markdown("</div>", unsafe_allow_html=True)
-
+ 
                     # Confirmation suppression (hors form)
                     if st.session_state.get(f"confirm_del_{a['id']}"):
                         st.warning(f"⚠️ Supprimer **{a['first_name']} {a['last_name']}** ? Cette action est irréversible.")
@@ -523,24 +519,27 @@ if page == "👤 Athlètes":
                         if cd2.button("❌ Annuler", key=f"no_{a['id']}", use_container_width=True):
                             st.session_state[f"confirm_del_{a['id']}"] = False
                             st.rerun()
-
+ 
                 # ── AFFICHAGE PBs (triés) ─────────────────────────────────────
+                # Une seule variable triée, réutilisée partout
                 pbs = sort_pbs(all_pbs.get(a["id"], []))
+ 
                 if pbs:
                     pb_cols = st.columns(min(len(pbs), 4))
                     for i, pb in enumerate(pbs):
                         pb_cols[i % 4].metric(pb["discipline"], pb["pb"])
-
+ 
                 # ── GESTION PBs ───────────────────────────────────────────────
                 if st.button("✏️ Gérer les PBs", key=f"edit_pb_{a['id']}"):
                     st.session_state[f"show_pb_{a['id']}"] = not st.session_state.get(f"show_pb_{a['id']}", False)
-
+ 
                 if st.session_state.get(f"show_pb_{a['id']}"):
                     with st.form(f"pb_form_{a['id']}"):
                         st.markdown("**PBs existants**")
                         inputs    = []
                         to_delete = []
-
+ 
+                        # Le formulaire affiche aussi les PBs dans le bon ordre
                         for i, pb in enumerate(pbs):
                             c1, c2, c3 = st.columns([3, 2, 1])
                             d = c1.text_input("Discipline", pb["discipline"], key=f"d_{a['id']}_{i}")
@@ -548,12 +547,12 @@ if page == "👤 Athlètes":
                             if c3.checkbox("🗑️", key=f"del_pb_{a['id']}_{i}"):
                                 to_delete.append(pb["discipline"])
                             inputs.append((d, v, pb["discipline"]))
-
+ 
                         st.markdown("**Nouveau PB**")
                         nc1, nc2 = st.columns(2)
                         new_d = nc1.text_input("Discipline", key=f"nd_{a['id']}")
                         new_v = nc2.number_input("PB", 0.0,  key=f"nv_{a['id']}")
-
+ 
                         if st.form_submit_button("💾 Sauvegarder"):
                             with db() as conn:
                                 cur = conn.cursor()
@@ -581,7 +580,7 @@ if page == "👤 Athlètes":
                             st.session_state[f"show_pb_{a['id']}"] = False
                             st.success("PBs mis à jour !")
                             st.rerun()
-
+ 
                 st.divider()
 # =========================
 # COMPÉTITIONS
