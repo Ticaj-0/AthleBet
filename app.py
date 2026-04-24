@@ -445,18 +445,16 @@ if page == "👤 Athlètes":
             with st.container():
 
                 # HEADER
-                col_info, col_actions = st.columns([6, 2])
+                col_info, col_actions = st.columns([4, 3])
                 col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
 
-                btn_edit, btn_delete = col_actions.columns([1, 1], gap="small")
-
-                with btn_edit:
-                    if st.button("✏️", key=f"btn_edit_age_{a['id']}", use_container_width=True):
-                        st.session_state[f"edit_age_{a['id']}"] = not st.session_state.get(f"edit_age_{a['id']}", False)
-
-                with btn_delete:
-                    if st.button("🗑️", key=f"del_{a['id']}", use_container_width=True):
-                        st.session_state[f"confirm_del_{a['id']}"] = True
+                btn_edit, btn_delete = col_actions.columns(2)
+                
+                if btn_edit.button("✏️", key=f"edit_age_{a['id']}", use_container_width=True):
+                    st.session_state[f"edit_age_{a['id']}"] = not st.session_state.get(f"edit_age_{a['id']}", False)
+                
+                if btn_delete.button("🗑️", key=f"del_{a['id']}", use_container_width=True):
+                    st.session_state[f"confirm_del_{a['id']}"] = True
 
                 # CONFIRM DELETE
                 if st.session_state.get(f"confirm_del_{a['id']}"):
