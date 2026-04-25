@@ -69,34 +69,41 @@ def fmt(d):
         return str(d) if d else ""
 
 # =========================
-# NOUVEAU SYSTÈME DE POINTS
+# NOUVEAU SYSTÈME DE POINTS (continu entre paliers)
 # =========================
 def score(p, r):
     """
-    Système de points amélioré avec bonus paliers :
-    - Chrono exacte (d=0)          : 300 pts 🎯
-    - Dans le centième (d < 0.01)  : 250 pts ⚡
-    - Dans le dixième (d < 0.10)   : 200 pts 🔥
-    - Dans la demi-seconde (d<0.50): 150 pts ✨
-    - Dans la seconde (d < 1.00)   : 100 pts 👍
-    - Dans 2 secondes (d < 2.00)   : 60 pts
-    - Au-delà                      : dégressif jusqu'à 0 (max 40 pts)
+    Système de points avec interpolation linéaire continue entre les paliers :
+    d=0       → 300 pts (parfait)
+    d=0.01    → 250 pts (seuil centième)
+    d=0.10    → 200 pts (seuil dixième)
+    d=0.50    → 150 pts (seuil demi-seconde)
+    d=1.00    → 100 pts (seuil seconde)
+    d=2.00    →  60 pts (seuil 2 secondes)
+    d=10.00   →   0 pts (dégressif au-delà)
+    Entre chaque palier : interpolation linéaire pour un score fluide.
     """
     d = abs(p - r)
-    if d == 0:
+    # Paliers : (d_max, pts_at_d_max) — d=0 vaut 300
+    BREAKPOINTS = [
+        (0.0,   300),
+        (0.01,  250),
+        (0.10,  200),
+        (0.50,  150),
+        (1.00,  100),
+        (2.00,   60),
+        (10.0,    0),
+    ]
+    if d <= 0:
         return 300
-    elif d < 0.01:
-        return 250
-    elif d < 0.10:
-        return 200
-    elif d < 0.50:
-        return 150
-    elif d < 1.00:
-        return 100
-    elif d < 2.00:
-        return 60
-    else:
-        return max(0, int(40 - (d - 2) * 5))
+    for i in range(1, len(BREAKPOINTS)):
+        d0, p0 = BREAKPOINTS[i - 1]
+        d1, p1 = BREAKPOINTS[i]
+        if d <= d1:
+            # Interpolation linéaire entre les deux bornes
+            t = (d - d0) / (d1 - d0)
+            return max(0, round(p0 + t * (p1 - p0)))
+    return 0
 
 def score_label(p, r):
     """Retourne un emoji + label selon la précision du pronostic."""
@@ -183,11 +190,13 @@ def get_historique_data():
         cur = conn.cursor()
         cur.execute("""
             SELECT p.username, p.prediction, r.result, p.competition_id,
-                   a.first_name, a.last_name, ca.discipline
+                   a.first_name, a.last_name, ca.discipline,
+                   pb.pb AS athlete_pb
             FROM predictions p
             JOIN results r ON p.competition_id = r.competition_id AND p.athlete_id = r.athlete_id
             JOIN athletes a ON a.id = p.athlete_id
             JOIN competition_athletes ca ON ca.competition_id = p.competition_id AND ca.athlete_id = p.athlete_id
+            LEFT JOIN athlete_pbs pb ON pb.athlete_id = p.athlete_id AND pb.discipline = ca.discipline
             ORDER BY p.competition_id, a.last_name, p.username
         """)
         rows = rows_to_dicts(cur.fetchall())
@@ -967,6 +976,7 @@ elif page == "📜 Historique":
                     if key not in athletes_data:
                         athletes_data[key] = {"result": row["result"], "discipline": row["discipline"],
                                               "first_name": row["first_name"], "last_name": row["last_name"],
+                                              "athlete_pb": row.get("athlete_pb"),
                                               "pronos": []}
                     athletes_data[key]["pronos"].append({
                         "username": row["username"],
@@ -991,6 +1001,21 @@ elif page == "📜 Historique":
 
                 # Affichage par athlète
                 for (fn, ln, disc, result), data in athletes_data.items():
+                    athlete_pb = data.get("athlete_pb")
+                    higher = is_higher_better(disc or "")
+                    is_pb = False
+                    if athlete_pb is not None:
+                        is_pb = (result >= float(athlete_pb)) if higher else (result <= float(athlete_pb))
+
+                    result_color = "#22c55e" if is_pb else "#e94560"
+                    pb_badge = ""
+                    if is_pb:
+                        pb_badge = "<span style='background:#14532d;color:#86efac;border-radius:8px;padding:2px 10px;font-size:0.78em;font-weight:700;margin-left:10px;letter-spacing:0.5px;'>🏅 PB</span>"
+                    elif athlete_pb is not None:
+                        diff_from_pb = abs(result - float(athlete_pb))
+                        sign = "+" if (not higher and result > float(athlete_pb)) or (higher and result < float(athlete_pb)) else "-" if diff_from_pb > 0 else ""
+                        pb_badge = f"<span style='background:#1e293b;color:#64748b;border-radius:8px;padding:2px 10px;font-size:0.78em;font-weight:600;margin-left:10px;'>{sign}{diff_from_pb:.2f}s du PB ({float(athlete_pb):.2f})</span>"
+
                     st.markdown(f"""
                     <div class='hist-athlete-block'>
                         <div class='hist-athlete-name'>
@@ -999,8 +1024,9 @@ elif page == "📜 Historique":
                         </div>
                         <div style='margin-bottom:10px;'>
                             <span style='color:#94a3b8;font-size:0.85em;'>RÉSULTAT OFFICIEL</span><br>
-                            <span class='hist-result-big'>{result:.2f}</span>
+                            <span style='font-family:"Bebas Neue",sans-serif;font-size:2em;color:{result_color};letter-spacing:1px;'>{result:.2f}</span>
                             <span style='color:#64748b;font-size:0.85em;'>s</span>
+                            {pb_badge}
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
