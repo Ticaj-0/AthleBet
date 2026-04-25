@@ -2,7 +2,7 @@ import streamlit as st
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
-from datetime import datetime
+from datetime import datetime, date
 from contextlib import contextmanager
 import requests
 
@@ -68,9 +68,53 @@ def fmt(d):
     except (ValueError, TypeError):
         return str(d) if d else ""
 
+# =========================
+# NOUVEAU SYSTÈME DE POINTS
+# =========================
 def score(p, r):
+    """
+    Système de points amélioré avec bonus paliers :
+    - Chrono exacte (d=0)          : 300 pts 🎯
+    - Dans le centième (d < 0.01)  : 250 pts ⚡
+    - Dans le dixième (d < 0.10)   : 200 pts 🔥
+    - Dans la demi-seconde (d<0.50): 150 pts ✨
+    - Dans la seconde (d < 1.00)   : 100 pts 👍
+    - Dans 2 secondes (d < 2.00)   : 60 pts
+    - Au-delà                      : dégressif jusqu'à 0 (max 40 pts)
+    """
     d = abs(p - r)
-    return 300 if d == 0 else max(0, int(150 - d * 4))
+    if d == 0:
+        return 300
+    elif d < 0.01:
+        return 250
+    elif d < 0.10:
+        return 200
+    elif d < 0.50:
+        return 150
+    elif d < 1.00:
+        return 100
+    elif d < 2.00:
+        return 60
+    else:
+        return max(0, int(40 - (d - 2) * 5))
+
+def score_label(p, r):
+    """Retourne un emoji + label selon la précision du pronostic."""
+    d = abs(p - r)
+    if d == 0:
+        return "🎯 PARFAIT !", "#FFD700"
+    elif d < 0.01:
+        return "⚡ Au centième", "#a78bfa"
+    elif d < 0.10:
+        return "🔥 Au dixième", "#fb923c"
+    elif d < 0.50:
+        return "✨ À 0.5s", "#34d399"
+    elif d < 1.00:
+        return "👍 À 1s", "#60a5fa"
+    elif d < 2.00:
+        return "📍 À 2s", "#94a3b8"
+    else:
+        return "💨 Raté", "#475569"
 
 def rows_to_dicts(rows):
     return [dict(r) for r in rows] if rows else []
@@ -80,21 +124,18 @@ def invalidate_cache():
 
 def send_onesignal_notification(title, message):
     url = "https://onesignal.com/api/v1/notifications"
-
     payload = {
         "app_id": st.secrets["onesignal"]["app_id"],
         "included_segments": ["All"],
         "headings": {"en": title},
         "contents": {"en": message}
     }
-
     headers = {
         "Authorization": f"Basic {st.secrets['onesignal']['api_key']}",
         "Content-Type": "application/json"
     }
-
     requests.post(url, json=payload, headers=headers)
-    
+
 @st.cache_data(ttl=30)
 def get_all_athletes():
     with db() as conn:
@@ -219,9 +260,6 @@ def maybe_update_pb(cur, athlete_id: int, discipline: str, new_result: float):
 # =========================
 if "user" not in st.session_state:
 
-    # -------------------------
-    # Query param login
-    # -------------------------
     saved_user = st.query_params.get("u", "")
 
     if saved_user:
@@ -232,9 +270,6 @@ if "user" not in st.session_state:
                 st.session_state.user = saved_user
                 st.rerun()
 
-    # -------------------------
-    # Auto-login via localStorage
-    # -------------------------
     st.markdown("""
     <script>
     (function () {
@@ -250,13 +285,8 @@ if "user" not in st.session_state:
     </script>
     """, unsafe_allow_html=True)
 
-    # =========================
-    # CSS GLOBAL (UN SEUL BLOC)
-    # =========================
     st.markdown("""
     <style>
-
-    /* INSTALL BANNER */
     .install-banner {
         background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
         border: 1px solid rgba(99,102,241,0.4);
@@ -265,28 +295,6 @@ if "user" not in st.session_state:
         margin-bottom: 20px;
         color: #e2e8f0;
     }
-    .install-title {
-        font-size: 1.1em;
-        font-weight: 700;
-        margin-bottom: 6px;
-    }
-    .install-sub {
-        font-size: 0.85em;
-        color: #94a3b8;
-        margin-bottom: 14px;
-    }
-    .step {
-        background: rgba(255,255,255,0.05);
-        border-radius: 10px;
-        padding: 10px;
-        margin-bottom: 8px;
-        font-size: 0.85em;
-    }
-    .step strong {
-        color: #a5b4fc;
-    }
-
-    /* LOGIN */
     .login-container {
         max-width: 520px;
         margin: 40px auto;
@@ -322,31 +330,21 @@ if "user" not in st.session_state:
         transform: translateY(-1px);
         opacity: 0.95;
     }
-
     </style>
     """, unsafe_allow_html=True)
 
-    # =========================
-    # LOGIN CARD
-    # =========================
     st.markdown("<h1 class='login-title'>🏃 ATHLÉ BET</h1>", unsafe_allow_html=True)
     st.markdown("<p class='login-subtitle'>Pronostique. Compète. Grimpe au classement.</p>", unsafe_allow_html=True)
 
-    # =========================
-    # INSTALL (VERSION EXPANDER)
-    # =========================
     with st.expander("📲 Installer Athlé Bet", expanded=False):
         st.markdown("Ajoute l'app à ton écran d'accueil pour un accès rapide")
-    
         st.markdown("### 🍎 iPhone / iPad")
         st.write("Bouton Partager ⬆ → Sur l'écran d'accueil → Ajouter")
-    
         st.markdown("### 🤖 Android")
         st.write("Menu ⋮ → Ajouter à l'écran d'accueil")
-    
         st.markdown("### 💻 PC / Mac")
         st.write("Icône d'installation dans la barre d'adresse Chrome / Edge")
-        
+
     u = st.text_input("Ton pseudo", placeholder="Ex: Ticaj (Définitif)")
 
     if st.button("▶ Entrer dans l'arène", use_container_width=True):
@@ -357,21 +355,17 @@ if "user" not in st.session_state:
                     "INSERT INTO users (username) VALUES (%s) ON CONFLICT DO NOTHING",
                     (u.strip(),)
                 )
-
             st.session_state.user = u.strip()
             st.query_params["u"] = u.strip()
-
             st.markdown(
                 f"<script>localStorage.setItem('athle_bet_user','{u.strip()}');</script>",
                 unsafe_allow_html=True
             )
-
             st.rerun()
         else:
             st.warning("Entre un pseudo")
 
     st.markdown("</div>", unsafe_allow_html=True)
-
     st.stop()
 
 current_user = st.session_state.user
@@ -392,30 +386,30 @@ with st.sidebar:
         st.query_params.clear()
         st.markdown("<script>localStorage.removeItem('athle_bet_user');</script>", unsafe_allow_html=True)
         st.rerun()
-        
+
 DISCIPLINE_ORDER = ["100m", "200m", "300m", "300mH", "400m", "400mH", "600m"]
- 
+
 def sort_pbs(pbs):
     def sort_key(pb):
         try:
             return DISCIPLINE_ORDER.index(pb["discipline"])
         except ValueError:
-            return len(DISCIPLINE_ORDER)  # disciplines inconnues à la fin
+            return len(DISCIPLINE_ORDER)
     return sorted(pbs, key=sort_key)
+
 # =========================
 # ATHLÈTES
 # =========================
 if page == "👤 Athlètes":
     st.title("👤 Athlètes")
- 
-    # ➕ AJOUT
+
     with st.expander("➕ Ajouter un athlète", expanded=False):
         with st.form("add_athlete"):
             c1, c2, c3 = st.columns(3)
             fn  = c1.text_input("Prénom")
             ln  = c2.text_input("Nom")
             age = c3.number_input("Âge", 10, 100, 20)
- 
+
             if st.form_submit_button("Créer l'athlète", use_container_width=True):
                 if fn.strip() and ln.strip():
                     with db() as conn:
@@ -429,31 +423,27 @@ if page == "👤 Athlètes":
                     st.rerun()
                 else:
                     st.error("Prénom et nom requis.")
- 
+
     st.divider()
- 
+
     athletes = get_all_athletes()
     all_pbs  = get_all_pbs()
- 
+
     if not athletes:
         st.info("Aucun athlète pour l'instant.")
     else:
         st.markdown(f"**{len(athletes)} athlète(s) enregistré(s)**")
- 
+
         for a in athletes:
             with st.container():
- 
-                # ── HEADER ────────────────────────────────────────────────────
                 col_info, col_btn = st.columns([8, 1])
                 col_info.markdown(f"### {a['first_name']} {a['last_name']}  `{a['age']} ans`")
- 
+
                 if col_btn.button("⚙️", key=f"options_{a['id']}"):
                     current = st.session_state.get(f"panel_{a['id']}", False)
                     st.session_state[f"panel_{a['id']}"] = not current
- 
-                # ── PANNEAU OPTIONS (édition + suppression) ───────────────────
+
                 if st.session_state.get(f"panel_{a['id']}"):
- 
                     with st.container():
                         st.markdown("""
                         <div style="
@@ -464,22 +454,19 @@ if page == "👤 Athlètes":
                             margin-bottom: 12px;
                         ">
                         """, unsafe_allow_html=True)
- 
+
                         with st.form(f"edit_form_{a['id']}"):
                             st.markdown("##### ✏️ Modifier l'athlète")
- 
                             ef1, ef2, ef3 = st.columns(3)
                             new_fn  = ef1.text_input("Prénom", value=a["first_name"])
                             new_ln  = ef2.text_input("Nom",    value=a["last_name"])
                             new_age = ef3.number_input("Âge", min_value=10, max_value=100, value=int(a["age"]))
- 
                             st.markdown("---")
- 
                             s1, s2, s3 = st.columns([2, 2, 1])
                             saved   = s1.form_submit_button("💾 Enregistrer", use_container_width=True)
                             closed  = s2.form_submit_button("✖ Fermer",       use_container_width=True)
                             deleted = s3.form_submit_button("🗑️",             use_container_width=True)
- 
+
                             if saved:
                                 if new_fn.strip() and new_ln.strip():
                                     with db() as conn:
@@ -494,17 +481,16 @@ if page == "👤 Athlètes":
                                     st.rerun()
                                 else:
                                     st.error("Prénom et nom requis.")
- 
+
                             if closed:
                                 st.session_state[f"panel_{a['id']}"] = False
                                 st.rerun()
- 
+
                             if deleted:
                                 st.session_state[f"confirm_del_{a['id']}"] = True
- 
+
                         st.markdown("</div>", unsafe_allow_html=True)
- 
-                    # Confirmation suppression (hors form)
+
                     if st.session_state.get(f"confirm_del_{a['id']}"):
                         st.warning(f"⚠️ Supprimer **{a['first_name']} {a['last_name']}** ? Cette action est irréversible.")
                         cd1, cd2 = st.columns(2)
@@ -519,27 +505,23 @@ if page == "👤 Athlètes":
                         if cd2.button("❌ Annuler", key=f"no_{a['id']}", use_container_width=True):
                             st.session_state[f"confirm_del_{a['id']}"] = False
                             st.rerun()
- 
-                # ── AFFICHAGE PBs (triés) ─────────────────────────────────────
-                # Une seule variable triée, réutilisée partout
+
                 pbs = sort_pbs(all_pbs.get(a["id"], []))
- 
+
                 if pbs:
                     pb_cols = st.columns(min(len(pbs), 4))
                     for i, pb in enumerate(pbs):
                         pb_cols[i % 4].metric(pb["discipline"], pb["pb"])
- 
-                # ── GESTION PBs ───────────────────────────────────────────────
+
                 if st.button("✏️ Gérer les PBs", key=f"edit_pb_{a['id']}"):
                     st.session_state[f"show_pb_{a['id']}"] = not st.session_state.get(f"show_pb_{a['id']}", False)
- 
+
                 if st.session_state.get(f"show_pb_{a['id']}"):
                     with st.form(f"pb_form_{a['id']}"):
                         st.markdown("**PBs existants**")
                         inputs    = []
                         to_delete = []
- 
-                        # Le formulaire affiche aussi les PBs dans le bon ordre
+
                         for i, pb in enumerate(pbs):
                             c1, c2, c3 = st.columns([3, 2, 1])
                             d = c1.text_input("Discipline", pb["discipline"], key=f"d_{a['id']}_{i}")
@@ -547,12 +529,12 @@ if page == "👤 Athlètes":
                             if c3.checkbox("🗑️", key=f"del_pb_{a['id']}_{i}"):
                                 to_delete.append(pb["discipline"])
                             inputs.append((d, v, pb["discipline"]))
- 
+
                         st.markdown("**Nouveau PB**")
                         nc1, nc2 = st.columns(2)
                         new_d = nc1.text_input("Discipline", key=f"nd_{a['id']}")
                         new_v = nc2.number_input("PB", 0.0,  key=f"nv_{a['id']}")
- 
+
                         if st.form_submit_button("💾 Sauvegarder"):
                             with db() as conn:
                                 cur = conn.cursor()
@@ -580,8 +562,9 @@ if page == "👤 Athlètes":
                             st.session_state[f"show_pb_{a['id']}"] = False
                             st.success("PBs mis à jour !")
                             st.rerun()
- 
+
                 st.divider()
+
 # =========================
 # COMPÉTITIONS
 # =========================
@@ -594,7 +577,7 @@ elif page == "🏟️ Compétitions":
     else:
         with st.expander("➕ Nouvelle compétition", expanded=True):
             name     = st.text_input("Nom de la compétition")
-            date     = st.date_input("Date")
+            date_val = st.date_input("Date")
             options  = {f"{a['first_name']} {a['last_name']}": a["id"] for a in athletes}
             selected = st.multiselect("Athlètes participants", list(options.keys()))
             all_pbs  = get_all_pbs()
@@ -622,7 +605,7 @@ elif page == "🏟️ Compétitions":
                 else:
                     with db() as conn:
                         cur = conn.cursor()
-                        cur.execute("INSERT INTO competitions (name,date) VALUES (%s,%s) RETURNING id", (name.strip(), date.strftime("%Y-%m-%d")))
+                        cur.execute("INSERT INTO competitions (name,date) VALUES (%s,%s) RETURNING id", (name.strip(), date_val.strftime("%Y-%m-%d")))
                         cid = cur.fetchone()["id"]
                         cur.executemany(
                             "INSERT INTO competition_athletes (competition_id,athlete_id,discipline) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
@@ -662,18 +645,67 @@ elif page == "🏟️ Compétitions":
                     st.rerun()
 
 # =========================
-# PRONOSTICS
+# PRONOSTICS (avec blocage le jour J)
 # =========================
 elif page == "🎯 Pronostics":
     st.title("🎯 Mes Pronostics")
     st.caption(f"Connecté en tant que **{current_user}**")
 
+    # Info sur les règles de points
+    with st.expander("📐 Système de points", expanded=False):
+        st.markdown("""
+        | Précision | Points |
+        |-----------|--------|
+        | 🎯 Chrono exacte | **300 pts** |
+        | ⚡ Au centième (< 0.01s) | **250 pts** |
+        | 🔥 Au dixième (< 0.10s) | **200 pts** |
+        | ✨ À la demi-seconde (< 0.50s) | **150 pts** |
+        | 👍 À la seconde (< 1.00s) | **100 pts** |
+        | 📍 Dans les 2 secondes (< 2.00s) | **60 pts** |
+        | 💨 Au-delà | **0–40 pts** (dégressif) |
+        """)
+
     comps = get_all_competitions()
+    today = date.today()
+
     if not comps:
         st.info("Aucune compétition disponible.")
     else:
         for c in comps:
-            with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
+            # Vérifier si la compétition est aujourd'hui ou passée
+            try:
+                comp_date = datetime.strptime(str(c["date"]), "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                comp_date = None
+
+            is_locked = comp_date is not None and comp_date <= today
+
+            with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}" + (" 🔒" if is_locked else "")):
+                
+                # Afficher un bandeau de blocage si jour J ou passé
+                if is_locked:
+                    if comp_date == today:
+                        st.markdown("""
+                        <div style="background:linear-gradient(135deg,#7c2d12,#991b1b);
+                            border:1px solid #dc2626;border-radius:10px;padding:14px 18px;margin-bottom:14px;">
+                            <span style="font-size:1.1em;font-weight:700;color:#fca5a5;">
+                                🔒 Pronostics fermés — La compétition a lieu aujourd'hui !
+                            </span><br>
+                            <span style="color:#fecaca;font-size:0.9em;">
+                                Les pronostics sont verrouillés le jour de la compétition.
+                            </span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown("""
+                        <div style="background:linear-gradient(135deg,#1e1b4b,#312e81);
+                            border:1px solid #4338ca;border-radius:10px;padding:14px 18px;margin-bottom:14px;">
+                            <span style="font-size:1.1em;font-weight:700;color:#a5b4fc;">
+                                🔒 Compétition terminée — Pronostics clôturés
+                            </span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
                 with db() as conn:
                     cur = conn.cursor()
                     cur.execute("""
@@ -690,31 +722,48 @@ elif page == "🎯 Pronostics":
                     st.warning("Aucun athlète dans cette compétition.")
                     continue
 
-                with st.form(f"prono_{c['id']}"):
-                    st.markdown("**Entrez vos pronostics :**")
-                    predictions = {}
+                if is_locked:
+                    # Mode lecture seule : affichage des pronostics déjà saisis
+                    st.markdown("**Tes pronostics enregistrés :**")
                     for a in ath:
-                        val = float(a["prediction"]) if a["prediction"] is not None else 0.0
-                        col_name, col_disc, col_pb, col_input = st.columns([3, 2, 2, 2])
+                        col_name, col_disc, col_pb, col_pred = st.columns([3, 2, 2, 2])
                         col_name.markdown(f"**{a['first_name']} {a['last_name']}**")
                         col_disc.markdown(f"🏅 `{a['discipline'] or '—'}`")
                         if a["pb"] is not None:
-                            col_pb.metric("PB", f"{a['pb']:.2f}", delta=None)
+                            col_pb.metric("PB", f"{a['pb']:.2f}")
                         else:
                             col_pb.caption("Pas de PB")
-                        predictions[a["id"]] = col_input.number_input("Prono", value=val, min_value=0.0, step=0.01, key=f"prono_{c['id']}_{a['id']}")
+                        if a["prediction"] is not None:
+                            col_pred.metric("Mon prono", f"{a['prediction']:.2f}")
+                        else:
+                            col_pred.caption("Pas de prono")
+                else:
+                    # Mode édition normal
+                    with st.form(f"prono_{c['id']}"):
+                        st.markdown("**Entrez vos pronostics :**")
+                        predictions = {}
+                        for a in ath:
+                            val = float(a["prediction"]) if a["prediction"] is not None else 0.0
+                            col_name, col_disc, col_pb, col_input = st.columns([3, 2, 2, 2])
+                            col_name.markdown(f"**{a['first_name']} {a['last_name']}**")
+                            col_disc.markdown(f"🏅 `{a['discipline'] or '—'}`")
+                            if a["pb"] is not None:
+                                col_pb.metric("PB", f"{a['pb']:.2f}", delta=None)
+                            else:
+                                col_pb.caption("Pas de PB")
+                            predictions[a["id"]] = col_input.number_input("Prono", value=val, min_value=0.0, step=0.01, key=f"prono_{c['id']}_{a['id']}")
 
-                    if st.form_submit_button("💾 Sauvegarder tous mes pronostics", use_container_width=True):
-                        with db() as conn:
-                            cur = conn.cursor()
-                            cur.executemany("""
-                                INSERT INTO predictions (username,competition_id,athlete_id,prediction)
-                                VALUES (%s,%s,%s,%s)
-                                ON CONFLICT (username,competition_id,athlete_id) DO UPDATE SET prediction=EXCLUDED.prediction
-                            """, [(current_user, c["id"], aid, pred) for aid, pred in predictions.items()])
-                        invalidate_cache()
-                        st.success("✅ Pronostics enregistrés !")
-                        st.rerun()
+                        if st.form_submit_button("💾 Sauvegarder tous mes pronostics", use_container_width=True):
+                            with db() as conn:
+                                cur = conn.cursor()
+                                cur.executemany("""
+                                    INSERT INTO predictions (username,competition_id,athlete_id,prediction)
+                                    VALUES (%s,%s,%s,%s)
+                                    ON CONFLICT (username,competition_id,athlete_id) DO UPDATE SET prediction=EXCLUDED.prediction
+                                """, [(current_user, c["id"], aid, pred) for aid, pred in predictions.items()])
+                            invalidate_cache()
+                            st.success("✅ Pronostics enregistrés !")
+                            st.rerun()
 
 # =========================
 # RÉSULTATS (with auto PB update)
@@ -746,13 +795,13 @@ elif page == "📊 Résultats":
                 with st.form(f"result_{c['id']}"):
                     st.markdown("**Résultats officiels :**")
                     results = {}
-                
+
                     for a in ath:
                         val = float(a["result"]) if a["result"] is not None else 0.0
                         label = f"{a['first_name']} {a['last_name']}  [{a['discipline'] or '—'}]"
                         if a["result"] is not None:
                             label += f"  ✅ (actuel: {a['result']})"
-                
+
                         results[a["id"]] = st.number_input(
                             label,
                             value=val,
@@ -760,15 +809,14 @@ elif page == "📊 Résultats":
                             step=0.01,
                             key=f"res_{c['id']}_{a['id']}"
                         )
-                
+
                     if st.form_submit_button("💾 Enregistrer les résultats", use_container_width=True):
                         pb_updates = []
                         should_notify = False
-                
+
                         with db() as conn:
                             cur = conn.cursor()
-                
-                            # 1. INSERT / UPDATE résultats
+
                             cur.executemany("""
                                 INSERT INTO results (competition_id, athlete_id, result)
                                 VALUES (%s, %s, %s)
@@ -779,18 +827,14 @@ elif page == "📊 Résultats":
                                 for aid, res in results.items()
                                 if res > 0
                             ])
-                
-                            # 2. PB update
+
                             for a in ath:
                                 res_val = results.get(a["id"], 0.0)
-                
                                 if res_val <= 0 or not a["discipline"]:
                                     continue
-                
                                 updated, old_pb, new_pb = maybe_update_pb(
                                     cur, a["id"], a["discipline"], res_val
                                 )
-                
                                 if updated:
                                     name_str = f"{a['first_name']} {a['last_name']}"
                                     if old_pb is None:
@@ -801,45 +845,107 @@ elif page == "📊 Résultats":
                                         pb_updates.append(
                                             f"🏅 **{name_str}** — Nouveau PB en {a['discipline']} : {old_pb:.2f} → **{new_pb:.2f}**"
                                         )
-                
-                            # 3. ONE SIGNAL (SAFE + ONCE ONLY)
+
                             cur.execute("""
                                 SELECT 1 FROM competition_notifications WHERE competition_id=%s
                             """, (c["id"],))
-                
                             already_sent = cur.fetchone()
-                
                             if not already_sent:
                                 should_notify = True
-                
                                 cur.execute("""
                                     INSERT INTO competition_notifications (competition_id)
                                     VALUES (%s)
                                 """, (c["id"],))
-                
-                        # OUTSIDE DB (API call propre)
+
                         if should_notify:
                             send_onesignal_notification(
                                 title="🏟️ Résultats disponibles",
                                 message=f"Les résultats de la compétition « {c['name']} » sont maintenant disponibles !"
                             )
-                
+
                         invalidate_cache()
                         st.success("✅ Résultats enregistrés !")
-                
+
                         if pb_updates:
                             st.balloons()
                             st.markdown("### 🎉 Nouveaux PBs !")
                             for msg in pb_updates:
                                 st.markdown(msg)
-                
+
                         st.rerun()
 
 # =========================
-# HISTORIQUE
+# HISTORIQUE — version visuelle enrichie
 # =========================
 elif page == "📜 Historique":
     st.title("📜 Historique")
+
+    st.markdown("""
+    <style>
+    .hist-comp-header {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        border-left: 4px solid #e94560;
+        border-radius: 0 12px 12px 0;
+        padding: 12px 20px;
+        margin-bottom: 16px;
+    }
+    .hist-athlete-block {
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 14px;
+        padding: 16px 20px;
+        margin-bottom: 14px;
+    }
+    .hist-athlete-name {
+        font-size: 1.05em;
+        font-weight: 700;
+        color: #f1f5f9;
+        margin-bottom: 10px;
+    }
+    .hist-discipline-tag {
+        background: #1e293b;
+        color: #94a3b8;
+        border-radius: 6px;
+        padding: 2px 8px;
+        font-size: 0.8em;
+        margin-left: 8px;
+        font-weight: 500;
+    }
+    .hist-result-big {
+        font-family: 'Bebas Neue', sans-serif;
+        font-size: 2em;
+        color: #e94560;
+        letter-spacing: 1px;
+    }
+    .hist-user-row {
+        background: #1e293b;
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .hist-prono-val {
+        font-weight: 700;
+        color: #60a5fa;
+        font-size: 1.1em;
+    }
+    .hist-pts-badge {
+        border-radius: 20px;
+        padding: 4px 14px;
+        font-weight: 800;
+        font-size: 1em;
+    }
+    .hist-precision-tag {
+        border-radius: 8px;
+        padding: 2px 10px;
+        font-size: 0.8em;
+        font-weight: 600;
+        margin-left: 8px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     comps = get_all_competitions()
     hist  = get_historique_data()
@@ -851,21 +957,106 @@ elif page == "📜 Historique":
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}"):
                 rows = hist.get(c["id"], [])
                 if not rows:
-                    st.info("Aucun résultat disponible.")
+                    st.info("Aucun résultat disponible pour cette compétition.")
                     continue
-                headers = st.columns([2, 2, 2, 1, 1, 1])
-                for h, label in zip(headers, ["**Utilisateur**","**Athlète**","**Discipline**","**Prono**","**Résultat**","**Points**"]):
-                    h.markdown(label)
-                st.divider()
+
+                # Regrouper par athlète
+                athletes_data = {}
                 for row in rows:
-                    pts = score(row["prediction"], row["result"])
-                    cols = st.columns([2, 2, 2, 1, 1, 1])
-                    cols[0].write(row["username"])
-                    cols[1].write(f"{row['first_name']} {row['last_name']}")
-                    cols[2].write(row["discipline"] or "—")
-                    cols[3].write(f"{row['prediction']:.2f}")
-                    cols[4].write(f"{row['result']:.2f}")
-                    cols[5].markdown(f"<span class='score-badge'>{pts} pts</span>", unsafe_allow_html=True)
+                    key = (row["first_name"], row["last_name"], row["discipline"], row["result"])
+                    if key not in athletes_data:
+                        athletes_data[key] = {"result": row["result"], "discipline": row["discipline"],
+                                              "first_name": row["first_name"], "last_name": row["last_name"],
+                                              "pronos": []}
+                    athletes_data[key]["pronos"].append({
+                        "username": row["username"],
+                        "prediction": row["prediction"]
+                    })
+
+                # Stats globales de la compétition
+                all_scores_comp = []
+                for row in rows:
+                    all_scores_comp.append(score(row["prediction"], row["result"]))
+                
+                total_pronos = len(rows)
+                perfect_count = sum(1 for row in rows if abs(row["prediction"] - row["result"]) == 0)
+                avg_pts = sum(all_scores_comp) / len(all_scores_comp) if all_scores_comp else 0
+
+                # Bandeau stats de la compétition
+                stat_cols = st.columns(3)
+                stat_cols[0].metric("🎽 Pronostics", total_pronos)
+                stat_cols[1].metric("🎯 Exactitudes", perfect_count)
+                stat_cols[2].metric("📊 Moy. pts", f"{avg_pts:.0f}")
+                st.markdown("---")
+
+                # Affichage par athlète
+                for (fn, ln, disc, result), data in athletes_data.items():
+                    st.markdown(f"""
+                    <div class='hist-athlete-block'>
+                        <div class='hist-athlete-name'>
+                            🏃 {fn} {ln}
+                            <span class='hist-discipline-tag'>{disc or '—'}</span>
+                        </div>
+                        <div style='margin-bottom:10px;'>
+                            <span style='color:#94a3b8;font-size:0.85em;'>RÉSULTAT OFFICIEL</span><br>
+                            <span class='hist-result-big'>{result:.2f}</span>
+                            <span style='color:#64748b;font-size:0.85em;'>s</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # Trier les pronos par score décroissant
+                    pronos_sorted = sorted(data["pronos"], key=lambda x: score(x["prediction"], result), reverse=True)
+
+                    for i, prono in enumerate(pronos_sorted):
+                        pts = score(prono["prediction"], result)
+                        diff = abs(prono["prediction"] - result)
+                        lbl, lbl_color = score_label(prono["prediction"], result)
+                        
+                        # Couleur du badge points selon score
+                        if pts >= 250:
+                            pts_bg = "linear-gradient(135deg,#854d0e,#ca8a04)"
+                            pts_color = "#fef08a"
+                        elif pts >= 150:
+                            pts_bg = "linear-gradient(135deg,#065f46,#059669)"
+                            pts_color = "#d1fae5"
+                        elif pts >= 60:
+                            pts_bg = "linear-gradient(135deg,#1e3a5f,#2563eb)"
+                            pts_color = "#bfdbfe"
+                        else:
+                            pts_bg = "linear-gradient(135deg,#1e293b,#334155)"
+                            pts_color = "#94a3b8"
+
+                        rank_icon = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
+
+                        st.markdown(f"""
+                        <div style='background:#1e293b;border-radius:10px;padding:10px 14px;
+                                    margin-bottom:8px;display:flex;justify-content:space-between;
+                                    align-items:center;border:1px solid #334155;'>
+                            <div style='display:flex;align-items:center;gap:10px;'>
+                                <span style='font-size:1.2em;'>{rank_icon}</span>
+                                <div>
+                                    <span style='font-weight:700;color:#f1f5f9;font-size:1em;'>{prono['username']}</span>
+                                    <br>
+                                    <span style='color:#94a3b8;font-size:0.82em;'>Prono : </span>
+                                    <span style='color:#60a5fa;font-weight:700;font-size:0.95em;'>{prono['prediction']:.2f}s</span>
+                                    <span style='color:#475569;font-size:0.8em;'> · écart : {diff:.2f}s</span>
+                                    <span style='background:{lbl_color}22;color:{lbl_color};border-radius:6px;
+                                               padding:1px 8px;font-size:0.78em;font-weight:600;margin-left:6px;'>
+                                        {lbl}
+                                    </span>
+                                </div>
+                            </div>
+                            <div style='text-align:right;'>
+                                <div style='background:{pts_bg};color:{pts_color};border-radius:16px;
+                                           padding:5px 16px;font-weight:800;font-size:1.05em;white-space:nowrap;'>
+                                    {pts} pts
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    st.markdown("<br>", unsafe_allow_html=True)
 
 # =========================
 # CLASSEMENT
@@ -960,14 +1151,21 @@ elif page == "🏆 Classement":
         with st.expander(f"📋 Détail « {last_comp['name']} » — {fmt(last_comp['date'])}"):
             with db() as conn:
                 cur = conn.cursor()
+                # Recalcul avec le nouveau système de score
                 cur.execute("""
-                    SELECT p.username,
-                           SUM(CASE WHEN ABS(p.prediction-r.result)=0 THEN 300
-                               ELSE GREATEST(0,FLOOR(150-ABS(p.prediction-r.result)*4)::int) END) as pts
+                    SELECT p.username, p.prediction, r.result
                     FROM predictions p
                     JOIN results r ON p.competition_id=r.competition_id AND p.athlete_id=r.athlete_id
-                    WHERE p.competition_id=%s GROUP BY p.username ORDER BY pts DESC
+                    WHERE p.competition_id=%s
                 """, (last_comp["id"],))
-                last_rows = rows_to_dicts(cur.fetchall())
-            for j, row in enumerate(last_rows, 1):
-                st.write(f"{medals.get(j,'#'+str(j))} **{row['username']}** — {row['pts']} pts sur cette compétition")
+                last_raw = rows_to_dicts(cur.fetchall())
+
+            # Calcul côté Python avec le nouveau score()
+            user_pts = {}
+            for row in last_raw:
+                u = row["username"]
+                user_pts[u] = user_pts.get(u, 0) + score(row["prediction"], row["result"])
+
+            last_rows_sorted = sorted(user_pts.items(), key=lambda x: -x[1])
+            for j, (uname, pts) in enumerate(last_rows_sorted, 1):
+                st.write(f"{medals.get(j,'#'+str(j))} **{uname}** — {pts} pts sur cette compétition")
