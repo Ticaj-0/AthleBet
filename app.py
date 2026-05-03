@@ -687,7 +687,7 @@ elif page == "🎯 Pronostics":
             except (ValueError, TypeError):
                 comp_date = None
 
-            is_locked = comp_date is not None and comp_date <= today
+            is_locked = comp_date is not None and comp_date < today
 
             with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}" + (" 🔒" if is_locked else "")):
                 
