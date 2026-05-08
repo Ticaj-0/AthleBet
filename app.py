@@ -642,7 +642,7 @@ elif page == "🏟️ Compétitions":
             # =========================
             # ÉDITION COMPÉTITION
             # =========================
-            if st.button("⚙️ Modifier", key=f"editcomp_{c['id']}"):
+            if st.button("⚙️", key=f"editcomp_{c['id']}"):
                 st.session_state[f"show_editcomp_{c['id']}"] = not st.session_state.get(
                     f"show_editcomp_{c['id']}", False
                 )
