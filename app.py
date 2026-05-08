@@ -837,27 +837,41 @@ elif page == "🏟️ Compétitions":
                             st.markdown(f"**{athlete_name}**")
 
                             if pb_disciplines:
-                                c1, c2 = st.columns([3, 1])
-                                chosen = c1.multiselect(
+                                chosen = st.multiselect(
                                     "Disciplines",
-                                    pb_disciplines,
-                                    default=[d for d in current_discs if d in pb_disciplines],
+                                    pb_disciplines + ["✏️ Discipline libre"],
+                                    default=[
+                                        d for d in current_discs
+                                        if d in pb_disciplines
+                                    ],
                                     key=f"edit_disc_{c['id']}_{aid}"
                                 )
-                                add_custom = c2.checkbox(
-                                    "➕ Libre", key=f"edit_custom_cb_{c['id']}_{aid}"
-                                )
-                                if add_custom:
-                                    custom_val = st.text_input(
-                                        f"Discipline libre {athlete_name}",
-                                        value=next(
-                                            (d for d in current_discs if d not in pb_disciplines), ""
-                                        ),
-                                        key=f"custom_disc_{c['id']}_{aid}"
-                                    )
-                                    if custom_val.strip():
-                                        chosen = chosen + [custom_val.strip()]
-                                disciplines[aid] = chosen
+                                
+                                final_discs = []
+                                
+                                for d in chosen:
+                                
+                                    if d == "✏️ Discipline libre":
+                                
+                                        custom_val = st.text_input(
+                                            f"Discipline libre pour {athlete_name}",
+                                            value=next(
+                                                (
+                                                    x for x in current_discs
+                                                    if x not in pb_disciplines
+                                                ),
+                                                ""
+                                            ),
+                                            key=f"custom_disc_{c['id']}_{aid}"
+                                        )
+                                
+                                        if custom_val.strip():
+                                            final_discs.append(custom_val.strip())
+                                
+                                    else:
+                                        final_discs.append(d)
+                                
+                                disciplines[aid] = final_discs
                             else:
                                 free_val = ", ".join(current_discs)
                                 free = st.text_input(
