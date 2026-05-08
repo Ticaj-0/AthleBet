@@ -648,8 +648,7 @@ elif page == "🏟️ Compétitions":
                 st.session_state[f"show_editcomp_{c['id']}"] = not st.session_state.get(
                     f"show_editcomp_{c['id']}", False
                 )
-            if col2.button("🗑️", key=f"delcomp_{c['id']}", help="Supprimer"):
-                st.session_state[f"confirm_delcomp_{c['id']}"] = True
+                
             if st.session_state.get(f"show_editcomp_{c['id']}"):
             
                 all_athletes = get_all_athletes()
@@ -773,7 +772,9 @@ elif page == "🏟️ Compétitions":
                         st.session_state[f"show_editcomp_{c['id']}"] = False
             
                         st.rerun()
-
+            if col2.button("🗑️", key=f"delcomp_{c['id']}", help="Supprimer"):
+                st.session_state[f"confirm_delcomp_{c['id']}"] = True
+                
             if st.session_state.get(f"confirm_delcomp_{c['id']}"):
                 st.warning(f"⚠️ Supprimer **{c['name']}** et tous ses données ?")
                 cc1, cc2 = st.columns(2)
