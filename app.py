@@ -641,8 +641,6 @@ elif page == "🏟️ Compétitions":
                     f"{r['first_name']} {r['last_name']} `{r['discipline'] or '—'}`"
                     for r in ca_rows
                 ]))
-            if col2.button("🗑️", key=f"delcomp_{c['id']}", help="Supprimer"):
-                st.session_state[f"confirm_delcomp_{c['id']}"] = True
             # =========================
             # ÉDITION COMPÉTITION
             # =========================
@@ -650,7 +648,8 @@ elif page == "🏟️ Compétitions":
                 st.session_state[f"show_editcomp_{c['id']}"] = not st.session_state.get(
                     f"show_editcomp_{c['id']}", False
                 )
-            
+            if col2.button("🗑️", key=f"delcomp_{c['id']}", help="Supprimer"):
+                st.session_state[f"confirm_delcomp_{c['id']}"] = True
             if st.session_state.get(f"show_editcomp_{c['id']}"):
             
                 all_athletes = get_all_athletes()
