@@ -639,7 +639,142 @@ elif page == "🏟️ Compétitions":
             if col2.button("🗑️", key=f"delcomp_{c['id']}", help="Supprimer"):
                 st.session_state[f"confirm_delcomp_{c['id']}"] = True
             if ca_rows:
-                st.caption("  ".join([f"{r['first_name']} {r['last_name']} `{r['discipline'] or '—'}`" for r in ca_rows]))
+                st.caption("  ".join([
+                    f"{r['first_name']} {r['last_name']} `{r['discipline'] or '—'}`"
+                    for r in ca_rows
+                ]))
+
+            # =========================
+            # ÉDITION COMPÉTITION
+            # =========================
+            if st.button("⚙️ Modifier", key=f"editcomp_{c['id']}"):
+                st.session_state[f"show_editcomp_{c['id']}"] = not st.session_state.get(
+                    f"show_editcomp_{c['id']}", False
+                )
+            
+            if st.session_state.get(f"show_editcomp_{c['id']}"):
+            
+                all_athletes = get_all_athletes()
+                all_pbs = get_all_pbs()
+            
+                existing_ids = [r["id"] for r in ca_rows]
+            
+                with st.form(f"edit_comp_form_{c['id']}"):
+            
+                    st.markdown("### ✏️ Modifier les participants")
+            
+                    selected_athletes = st.multiselect(
+                        "Athlètes participants",
+                        options=[
+                            f"{a['first_name']} {a['last_name']}"
+                            for a in all_athletes
+                        ],
+                        default=[
+                            f"{r['first_name']} {r['last_name']}"
+                            for r in ca_rows
+                        ],
+                        key=f"multi_edit_{c['id']}"
+                    )
+            
+                    athlete_map = {
+                        f"{a['first_name']} {a['last_name']}": a["id"]
+                        for a in all_athletes
+                    }
+            
+                    disciplines = {}
+            
+                    if selected_athletes:
+                        st.markdown("### 🏅 Disciplines")
+            
+                        for athlete_name in selected_athletes:
+            
+                            aid = athlete_map[athlete_name]
+            
+                            current_disc = ""
+                            for r in ca_rows:
+                                if r["id"] == aid:
+                                    current_disc = r["discipline"] or ""
+            
+                            pb_disciplines = [
+                                pb["discipline"]
+                                for pb in all_pbs.get(aid, [])
+                            ]
+            
+                            c1, c2 = st.columns([2, 3])
+            
+                            c1.markdown(f"**{athlete_name}**")
+            
+                            if pb_disciplines:
+                                default_index = 0
+            
+                                if current_disc in pb_disciplines:
+                                    default_index = pb_disciplines.index(current_disc)
+            
+                                chosen = c2.selectbox(
+                                    "Discipline",
+                                    pb_disciplines + ["✏️ Autre..."],
+                                    index=default_index,
+                                    key=f"edit_disc_{c['id']}_{aid}"
+                                )
+            
+                                if chosen == "✏️ Autre...":
+                                    disciplines[aid] = st.text_input(
+                                        f"Discipline personnalisée {athlete_name}",
+                                        value=current_disc,
+                                        key=f"custom_disc_{c['id']}_{aid}"
+                                    )
+                                else:
+                                    disciplines[aid] = chosen
+            
+                            else:
+                                disciplines[aid] = c2.text_input(
+                                    "Discipline",
+                                    value=current_disc,
+                                    key=f"free_disc_{c['id']}_{aid}"
+                                )
+            
+                    save_changes = st.form_submit_button(
+                        "💾 Sauvegarder les modifications",
+                        use_container_width=True
+                    )
+            
+                    if save_changes:
+            
+                        selected_ids = [
+                            athlete_map[name]
+                            for name in selected_athletes
+                        ]
+            
+                        with db() as conn:
+                            cur = conn.cursor()
+            
+                            # Supprimer les anciens participants
+                            cur.execute(
+                                "DELETE FROM competition_athletes WHERE competition_id=%s",
+                                (c["id"],)
+                            )
+            
+                            # Réinsérer les nouveaux
+                            cur.executemany("""
+                                INSERT INTO competition_athletes
+                                (competition_id, athlete_id, discipline)
+                                VALUES (%s, %s, %s)
+                            """, [
+                                (
+                                    c["id"],
+                                    aid,
+                                    disciplines.get(aid, "").strip()
+                                )
+                                for aid in selected_ids
+                            ])
+            
+                        invalidate_cache()
+            
+                        st.success("✅ Compétition mise à jour !")
+            
+                        st.session_state[f"show_editcomp_{c['id']}"] = False
+            
+                        st.rerun()
             if st.session_state.get(f"confirm_delcomp_{c['id']}"):
                 st.warning(f"⚠️ Supprimer **{c['name']}** et tous ses données ?")
                 cc1, cc2 = st.columns(2)
