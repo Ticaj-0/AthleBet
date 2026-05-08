@@ -638,11 +638,6 @@ elif page == "🏟️ Compétitions":
             col1.markdown(f"**{c['name']}** — {fmt(c['date'])}  `{len(ca_rows)} athlète(s)`")
             if col2.button("🗑️", key=f"delcomp_{c['id']}", help="Supprimer"):
                 st.session_state[f"confirm_delcomp_{c['id']}"] = True
-            if ca_rows:
-                st.caption("  ".join([
-                    f"{r['first_name']} {r['last_name']} `{r['discipline'] or '—'}`"
-                    for r in ca_rows
-                ]))
 
             # =========================
             # ÉDITION COMPÉTITION
@@ -775,6 +770,11 @@ elif page == "🏟️ Compétitions":
                         st.session_state[f"show_editcomp_{c['id']}"] = False
             
                         st.rerun()
+            if ca_rows:
+                st.caption("  ".join([
+                    f"{r['first_name']} {r['last_name']} `{r['discipline'] or '—'}`"
+                    for r in ca_rows
+                ]))
             if st.session_state.get(f"confirm_delcomp_{c['id']}"):
                 st.warning(f"⚠️ Supprimer **{c['name']}** et tous ses données ?")
                 cc1, cc2 = st.columns(2)
