@@ -44,23 +44,179 @@ def db():
 def init_db():
     with db() as conn:
         cur = conn.cursor()
+
+        # ── Tables de base (création initiale) ──────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY);
-            CREATE TABLE IF NOT EXISTS athletes (id SERIAL PRIMARY KEY, first_name TEXT NOT NULL, last_name TEXT NOT NULL, age INTEGER);
-            CREATE TABLE IF NOT EXISTS athlete_pbs (athlete_id INTEGER, discipline TEXT, pb REAL, PRIMARY KEY (athlete_id, discipline), FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE);
-            CREATE TABLE IF NOT EXISTS competitions (id SERIAL PRIMARY KEY, name TEXT NOT NULL, date TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS competition_athletes (competition_id INTEGER, athlete_id INTEGER, discipline TEXT, PRIMARY KEY (competition_id, athlete_id), FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE, FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE);
-            CREATE TABLE IF NOT EXISTS predictions (username TEXT, competition_id INTEGER, athlete_id INTEGER, prediction REAL, PRIMARY KEY (username, competition_id, athlete_id), FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE);
-            CREATE TABLE IF NOT EXISTS results (competition_id INTEGER, athlete_id INTEGER, result REAL, PRIMARY KEY (competition_id, athlete_id), FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE);
-            CREATE TABLE IF NOT EXISTS competition_notifications (competition_id INTEGER PRIMARY KEY,sent_at TIMESTAMP DEFAULT NOW());
+
+            CREATE TABLE IF NOT EXISTS athletes (
+                id SERIAL PRIMARY KEY,
+                first_name TEXT NOT NULL,
+                last_name  TEXT NOT NULL,
+                age        INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS athlete_pbs (
+                athlete_id INTEGER,
+                discipline TEXT,
+                pb         REAL,
+                PRIMARY KEY (athlete_id, discipline),
+                FOREIGN KEY (athlete_id) REFERENCES athletes(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS competitions (
+                id   SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                date TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS competition_notifications (
+                competition_id INTEGER PRIMARY KEY,
+                sent_at        TIMESTAMP DEFAULT NOW()
+            );
         """)
-        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='competition_athletes' AND column_name='discipline'")
+
+        # ── Migration 1 : ancienne competition_athletes sans colonne discipline ──
+        # On crée la table si elle n'existe pas encore du tout (premier boot propre)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS competition_athletes (
+                competition_id INTEGER NOT NULL,
+                athlete_id     INTEGER NOT NULL,
+                discipline     TEXT,
+                PRIMARY KEY (competition_id, athlete_id),
+                FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+                FOREIGN KEY (athlete_id)     REFERENCES athletes(id)     ON DELETE CASCADE
+            )
+        """)
+
+        # Ajout colonne discipline si absente (très ancienne version)
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='competition_athletes' AND column_name='discipline'
+        """)
         if not cur.fetchone():
             cur.execute("ALTER TABLE competition_athletes ADD COLUMN discipline TEXT")
+
+        # ── Migration 2 : refonte competition_athletes → multi-discipline ────
+        # On détecte si la table a déjà une colonne id SERIAL (nouvelle structure)
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='competition_athletes' AND column_name='id'
+        """)
+        if not cur.fetchone():
+            # Nouvelle table avec id SERIAL + UNIQUE (comp, athlete, discipline)
+            cur.execute("""
+                CREATE TABLE competition_athletes_new (
+                    id             SERIAL PRIMARY KEY,
+                    competition_id INTEGER NOT NULL,
+                    athlete_id     INTEGER NOT NULL,
+                    discipline     TEXT,
+                    UNIQUE (competition_id, athlete_id, discipline),
+                    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (athlete_id)     REFERENCES athletes(id)     ON DELETE CASCADE
+                )
+            """)
+            # Copie des données existantes (conserve tout)
+            cur.execute("""
+                INSERT INTO competition_athletes_new (competition_id, athlete_id, discipline)
+                SELECT competition_id, athlete_id, discipline
+                FROM competition_athletes
+                ON CONFLICT DO NOTHING
+            """)
+            cur.execute("DROP TABLE competition_athletes")
+            cur.execute("ALTER TABLE competition_athletes_new RENAME TO competition_athletes")
+
+        # ── Migration 3 : predictions → ajout colonne discipline ─────────────
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='predictions' AND column_name='discipline'
+        """)
+        if not cur.fetchone():
+            # La table n'a pas encore discipline : on la recrée proprement
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS predictions (
+                    username       TEXT,
+                    competition_id INTEGER,
+                    athlete_id     INTEGER,
+                    prediction     REAL,
+                    PRIMARY KEY (username, competition_id, athlete_id),
+                    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
+                )
+            """)
+            cur.execute("ALTER TABLE predictions ADD COLUMN discipline TEXT")
+            # Peupler discipline depuis competition_athletes pour les lignes existantes
+            cur.execute("""
+                UPDATE predictions p
+                SET discipline = ca.discipline
+                FROM competition_athletes ca
+                WHERE ca.competition_id = p.competition_id
+                  AND ca.athlete_id     = p.athlete_id
+            """)
+            # Reconstruire la PK avec discipline
+            cur.execute("ALTER TABLE predictions DROP CONSTRAINT IF EXISTS predictions_pkey")
+            cur.execute("""
+                ALTER TABLE predictions
+                ADD PRIMARY KEY (username, competition_id, athlete_id, discipline)
+            """)
+        else:
+            # Table déjà migrée : s'assurer qu'elle existe (premier boot propre)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS predictions (
+                    username       TEXT,
+                    competition_id INTEGER,
+                    athlete_id     INTEGER,
+                    discipline     TEXT,
+                    prediction     REAL,
+                    PRIMARY KEY (username, competition_id, athlete_id, discipline),
+                    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
+                )
+            """)
+
+        # ── Migration 4 : results → ajout colonne discipline ─────────────────
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='results' AND column_name='discipline'
+        """)
+        if not cur.fetchone():
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS results (
+                    competition_id INTEGER,
+                    athlete_id     INTEGER,
+                    result         REAL,
+                    PRIMARY KEY (competition_id, athlete_id),
+                    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
+                )
+            """)
+            cur.execute("ALTER TABLE results ADD COLUMN discipline TEXT")
+            cur.execute("""
+                UPDATE results r
+                SET discipline = ca.discipline
+                FROM competition_athletes ca
+                WHERE ca.competition_id = r.competition_id
+                  AND ca.athlete_id     = r.athlete_id
+            """)
+            cur.execute("ALTER TABLE results DROP CONSTRAINT IF EXISTS results_pkey")
+            cur.execute("""
+                ALTER TABLE results
+                ADD PRIMARY KEY (competition_id, athlete_id, discipline)
+            """)
+        else:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS results (
+                    competition_id INTEGER,
+                    athlete_id     INTEGER,
+                    discipline     TEXT,
+                    result         REAL,
+                    PRIMARY KEY (competition_id, athlete_id, discipline),
+                    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE
+                )
+            """)
+
 
 if "db_initialized" not in st.session_state:
     init_db()
     st.session_state.db_initialized = True
+
 
 def fmt(d):
     try:
@@ -68,23 +224,12 @@ def fmt(d):
     except (ValueError, TypeError):
         return str(d) if d else ""
 
+
 # =========================
-# NOUVEAU SYSTÈME DE POINTS (continu entre paliers)
+# SYSTÈME DE POINTS
 # =========================
 def score(p, r):
-    """
-    Système de points avec interpolation linéaire continue entre les paliers :
-    d=0       → 300 pts (parfait)
-    d=0.01    → 250 pts (seuil centième)
-    d=0.10    → 200 pts (seuil dixième)
-    d=0.50    → 150 pts (seuil demi-seconde)
-    d=1.00    → 100 pts (seuil seconde)
-    d=2.00    →  60 pts (seuil 2 secondes)
-    d=10.00   →   0 pts (dégressif au-delà)
-    Entre chaque palier : interpolation linéaire pour un score fluide.
-    """
     d = abs(p - r)
-    # Paliers : (d_max, pts_at_d_max) — d=0 vaut 300
     BREAKPOINTS = [
         (0.0,   300),
         (0.01,  250),
@@ -100,13 +245,12 @@ def score(p, r):
         d0, p0 = BREAKPOINTS[i - 1]
         d1, p1 = BREAKPOINTS[i]
         if d <= d1:
-            # Interpolation linéaire entre les deux bornes
             t = (d - d0) / (d1 - d0)
             return max(0, round(p0 + t * (p1 - p0)))
     return 0
 
+
 def score_label(p, r):
-    """Retourne un emoji + label selon la précision du pronostic."""
     d = abs(p - r)
     if d == 0:
         return "🎯 PARFAIT !", "#FFD700"
@@ -123,11 +267,14 @@ def score_label(p, r):
     else:
         return "💨 Raté", "#475569"
 
+
 def rows_to_dicts(rows):
     return [dict(r) for r in rows] if rows else []
 
+
 def invalidate_cache():
     st.cache_data.clear()
+
 
 def send_onesignal_notification(title, message):
     url = "https://onesignal.com/api/v1/notifications"
@@ -143,6 +290,10 @@ def send_onesignal_notification(title, message):
     }
     requests.post(url, json=payload, headers=headers)
 
+
+# =========================
+# CACHE DATA
+# =========================
 @st.cache_data(ttl=30)
 def get_all_athletes():
     with db() as conn:
@@ -150,12 +301,14 @@ def get_all_athletes():
         cur.execute("SELECT * FROM athletes ORDER BY last_name, first_name")
         return rows_to_dicts(cur.fetchall())
 
+
 @st.cache_data(ttl=30)
 def get_all_competitions():
     with db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM competitions ORDER BY date DESC")
         return rows_to_dicts(cur.fetchall())
+
 
 @st.cache_data(ttl=30)
 def get_all_pbs():
@@ -168,15 +321,21 @@ def get_all_pbs():
         pbs.setdefault(r["athlete_id"], []).append(r)
     return pbs
 
+
 @st.cache_data(ttl=30)
 def get_all_competition_athletes():
+    """
+    Retourne un dict competition_id -> list[row]
+    Chaque row = (competition_id, discipline, id, first_name, last_name)
+    Un athlète peut apparaître plusieurs fois si plusieurs disciplines.
+    """
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
             SELECT ca.competition_id, ca.discipline, a.id, a.first_name, a.last_name
             FROM competition_athletes ca
             JOIN athletes a ON a.id = ca.athlete_id
-            ORDER BY ca.competition_id, a.last_name
+            ORDER BY ca.competition_id, a.last_name, ca.discipline
         """)
         rows = rows_to_dicts(cur.fetchall())
     grouped = {}
@@ -184,26 +343,30 @@ def get_all_competition_athletes():
         grouped.setdefault(r["competition_id"], []).append(r)
     return grouped
 
+
 @st.cache_data(ttl=30)
 def get_historique_data():
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
             SELECT p.username, p.prediction, r.result, p.competition_id,
-                   a.first_name, a.last_name, ca.discipline,
+                   a.first_name, a.last_name, p.discipline,
                    pb.pb AS athlete_pb
             FROM predictions p
-            JOIN results r ON p.competition_id = r.competition_id AND p.athlete_id = r.athlete_id
+            JOIN results r ON  p.competition_id = r.competition_id
+                           AND p.athlete_id     = r.athlete_id
+                           AND p.discipline     = r.discipline
             JOIN athletes a ON a.id = p.athlete_id
-            JOIN competition_athletes ca ON ca.competition_id = p.competition_id AND ca.athlete_id = p.athlete_id
-            LEFT JOIN athlete_pbs pb ON pb.athlete_id = p.athlete_id AND pb.discipline = ca.discipline
-            ORDER BY p.competition_id, a.last_name, p.username
+            LEFT JOIN athlete_pbs pb ON pb.athlete_id = p.athlete_id
+                                     AND pb.discipline = p.discipline
+            ORDER BY p.competition_id, a.last_name, p.discipline, p.username
         """)
         rows = rows_to_dicts(cur.fetchall())
     grouped = {}
     for r in rows:
         grouped.setdefault(r["competition_id"], []).append(r)
     return grouped
+
 
 @st.cache_data(ttl=30)
 def get_classement_data():
@@ -213,13 +376,16 @@ def get_classement_data():
         users = rows_to_dicts(cur.fetchall())
         cur.execute("""
             SELECT DISTINCT c.id, c.name, c.date FROM competitions c
-            JOIN results r ON r.competition_id = c.id ORDER BY c.date ASC, c.id ASC
+            JOIN results r ON r.competition_id = c.id
+            ORDER BY c.date ASC, c.id ASC
         """)
         comps = rows_to_dicts(cur.fetchall())
         cur.execute("""
             SELECT p.username, p.prediction, r.result, p.competition_id
             FROM predictions p
-            JOIN results r ON p.competition_id = r.competition_id AND p.athlete_id = r.athlete_id
+            JOIN results r ON  p.competition_id = r.competition_id
+                           AND p.athlete_id     = r.athlete_id
+                           AND p.discipline     = r.discipline
         """)
         scores = rows_to_dicts(cur.fetchall())
     return users, comps, scores
@@ -233,19 +399,19 @@ HIGHER_IS_BETTER_KEYWORDS = [
     "poids", "disque", "marteau", "javelot", "throw", "jump", "vault"
 ]
 
+
 def is_higher_better(discipline: str) -> bool:
     d = discipline.lower()
     return any(kw in d for kw in HIGHER_IS_BETTER_KEYWORDS)
 
+
 def maybe_update_pb(cur, athlete_id: int, discipline: str, new_result: float):
-    """Update the PB if new_result is better than the existing one."""
     cur.execute(
         "SELECT pb FROM athlete_pbs WHERE athlete_id=%s AND discipline=%s",
         (athlete_id, discipline)
     )
     row = cur.fetchone()
     higher = is_higher_better(discipline)
-
     if row is None:
         cur.execute(
             "INSERT INTO athlete_pbs (athlete_id, discipline, pb) VALUES (%s, %s, %s)",
@@ -265,7 +431,7 @@ def maybe_update_pb(cur, athlete_id: int, discipline: str, new_result: float):
 
 
 # =========================
-# AUTH — bloc clean
+# AUTH
 # =========================
 if "user" not in st.session_state:
 
@@ -296,48 +462,12 @@ if "user" not in st.session_state:
 
     st.markdown("""
     <style>
-    .install-banner {
-        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-        border: 1px solid rgba(99,102,241,0.4);
-        border-radius: 16px;
-        padding: 18px;
-        margin-bottom: 20px;
-        color: #e2e8f0;
-    }
-    .login-container {
-        max-width: 520px;
-        margin: 40px auto;
-        padding: 28px;
-        background: linear-gradient(145deg, #0f172a, #111827);
-        border: 1px solid #1f2937;
-        border-radius: 18px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.4);
-    }
-    .login-title {
-        text-align:center;
-        font-size:3em;
-        margin-bottom: 0;
-        color: #f8fafc;
-    }
-    .login-subtitle {
-        text-align:center;
-        color:#94a3b8;
-        margin-top: 8px;
-        margin-bottom: 24px;
-    }
+    .login-title { text-align:center; font-size:3em; margin-bottom:0; color:#f8fafc; }
+    .login-subtitle { text-align:center; color:#94a3b8; margin-top:8px; margin-bottom:24px; }
     div.stButton > button {
         background: linear-gradient(135deg, #e94560, #ff2e63);
-        color: white;
-        border: none;
-        border-radius: 12px;
-        padding: 12px 16px;
-        font-size: 1em;
-        font-weight: 600;
-        transition: 0.2s ease;
-    }
-    div.stButton > button:hover {
-        transform: translateY(-1px);
-        opacity: 0.95;
+        color: white; border: none; border-radius: 12px;
+        padding: 12px 16px; font-size: 1em; font-weight: 600;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -374,10 +504,10 @@ if "user" not in st.session_state:
         else:
             st.warning("Entre un pseudo")
 
-    st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
 current_user = st.session_state.user
+
 
 # =========================
 # SIDEBAR
@@ -398,6 +528,7 @@ with st.sidebar:
 
 DISCIPLINE_ORDER = ["100m", "200m", "300m", "300mH", "400m", "400mH", "600m"]
 
+
 def sort_pbs(pbs):
     def sort_key(pb):
         try:
@@ -405,6 +536,7 @@ def sort_pbs(pbs):
         except ValueError:
             return len(DISCIPLINE_ORDER)
     return sorted(pbs, key=sort_key)
+
 
 # =========================
 # ATHLÈTES
@@ -455,13 +587,7 @@ if page == "👤 Athlètes":
                 if st.session_state.get(f"panel_{a['id']}"):
                     with st.container():
                         st.markdown("""
-                        <div style="
-                            background: #1e293b;
-                            border: 1px solid #334155;
-                            border-radius: 12px;
-                            padding: 16px 20px;
-                            margin-bottom: 12px;
-                        ">
+                        <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px 20px;margin-bottom:12px;">
                         """, unsafe_allow_html=True)
 
                         with st.form(f"edit_form_{a['id']}"):
@@ -490,11 +616,9 @@ if page == "👤 Athlètes":
                                     st.rerun()
                                 else:
                                     st.error("Prénom et nom requis.")
-
                             if closed:
                                 st.session_state[f"panel_{a['id']}"] = False
                                 st.rerun()
-
                             if deleted:
                                 st.session_state[f"confirm_del_{a['id']}"] = True
 
@@ -516,7 +640,6 @@ if page == "👤 Athlètes":
                             st.rerun()
 
                 pbs = sort_pbs(all_pbs.get(a["id"], []))
-
                 if pbs:
                     pb_cols = st.columns(min(len(pbs), 4))
                     for i, pb in enumerate(pbs):
@@ -574,6 +697,7 @@ if page == "👤 Athlètes":
 
                 st.divider()
 
+
 # =========================
 # COMPÉTITIONS
 # =========================
@@ -591,34 +715,54 @@ elif page == "🏟️ Compétitions":
             selected = st.multiselect("Athlètes participants", list(options.keys()))
             all_pbs  = get_all_pbs()
 
+            # athlete_disciplines : aid -> list[str]
             athlete_disciplines = {}
+
             if selected:
-                st.markdown("**Discipline par athlète :**")
+                st.markdown("**Disciplines par athlète :**")
                 for s in selected:
                     aid = options[s]
                     disc_list = [pb["discipline"] for pb in all_pbs.get(aid, [])]
-                    col_name, col_disc = st.columns([2, 3])
-                    col_name.markdown(f"**{s}**")
+                    st.markdown(f"**{s}**")
+
                     if disc_list:
-                        chosen = col_disc.selectbox("Discipline", disc_list + ["✏️ Autre..."], key=f"disc_{aid}")
-                        if chosen == "✏️ Autre...":
-                            athlete_disciplines[aid] = st.text_input(f"Discipline personnalisée pour {s}", key=f"disc_custom_{aid}")
-                        else:
-                            athlete_disciplines[aid] = chosen
+                        chosen_discs = st.multiselect(
+                            "Disciplines", disc_list,
+                            key=f"disc_multi_{aid}"
+                        )
+                        add_custom = st.checkbox("➕ Discipline libre", key=f"add_custom_{aid}")
+                        if add_custom:
+                            custom_disc = st.text_input(
+                                f"Discipline libre pour {s}", key=f"disc_custom_{aid}"
+                            )
+                            if custom_disc.strip():
+                                chosen_discs = chosen_discs + [custom_disc.strip()]
+                        athlete_disciplines[aid] = chosen_discs
                     else:
-                        athlete_disciplines[aid] = col_disc.text_input("Discipline (aucun PB)", key=f"disc_free_{aid}")
+                        free = st.text_input("Discipline (aucun PB)", key=f"disc_free_{aid}")
+                        athlete_disciplines[aid] = [free.strip()] if free.strip() else []
 
             if st.button("🏟️ Créer la compétition") and name.strip() and selected:
-                if not all(athlete_disciplines.get(options[s], "").strip() for s in selected):
-                    st.error("⚠️ Veuillez renseigner une discipline pour chaque athlète.")
+                if not all(athlete_disciplines.get(options[s]) for s in selected):
+                    st.error("⚠️ Veuillez renseigner au moins une discipline pour chaque athlète.")
                 else:
                     with db() as conn:
                         cur = conn.cursor()
-                        cur.execute("INSERT INTO competitions (name,date) VALUES (%s,%s) RETURNING id", (name.strip(), date_val.strftime("%Y-%m-%d")))
+                        cur.execute(
+                            "INSERT INTO competitions (name,date) VALUES (%s,%s) RETURNING id",
+                            (name.strip(), date_val.strftime("%Y-%m-%d"))
+                        )
                         cid = cur.fetchone()["id"]
+                        rows_to_insert = []
+                        for s in selected:
+                            aid = options[s]
+                            for disc in athlete_disciplines[aid]:
+                                rows_to_insert.append((cid, aid, disc))
                         cur.executemany(
-                            "INSERT INTO competition_athletes (competition_id,athlete_id,discipline) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
-                            [(cid, options[s], athlete_disciplines[options[s]].strip()) for s in selected]
+                            """INSERT INTO competition_athletes (competition_id,athlete_id,discipline)
+                               VALUES (%s,%s,%s)
+                               ON CONFLICT (competition_id,athlete_id,discipline) DO NOTHING""",
+                            rows_to_insert
                         )
                     invalidate_cache()
                     st.success(f"✅ Compétition **{name}** créée !")
@@ -631,152 +775,145 @@ elif page == "🏟️ Compétitions":
     if not comps:
         st.info("Aucune compétition créée.")
     else:
+        # Compter les athlètes uniques (pas les lignes discipline)
+        def count_unique_athletes(ca_rows):
+            return len(set(r["id"] for r in ca_rows))
+
         st.markdown(f"**{len(comps)} compétition(s)**")
         for c in comps:
             ca_rows = comp_athletes.get(c["id"], [])
+            n_athletes = count_unique_athletes(ca_rows)
             col1, col2 = st.columns([5, 1])
-            col1.markdown(f"**{c['name']}** — {fmt(c['date'])}  `{len(ca_rows)} athlète(s)`")
+            col1.markdown(f"**{c['name']}** — {fmt(c['date'])}  `{n_athletes} athlète(s)`")
             if col2.button("🗑️", key=f"delcomp_{c['id']}", help="Supprimer"):
                 st.session_state[f"confirm_delcomp_{c['id']}"] = True
 
-            # =========================
-            # ÉDITION COMPÉTITION
-            # =========================
+            # Bouton édition
             if st.button("⚙️", key=f"editcomp_{c['id']}"):
                 st.session_state[f"show_editcomp_{c['id']}"] = not st.session_state.get(
                     f"show_editcomp_{c['id']}", False
                 )
-            
+
             if st.session_state.get(f"show_editcomp_{c['id']}"):
-            
-                all_athletes = get_all_athletes()
+                all_athletes_list = get_all_athletes()
                 all_pbs = get_all_pbs()
-            
-                existing_ids = [r["id"] for r in ca_rows]
-            
+
+                # Reconstruire : aid -> list[discipline] depuis ca_rows
+                existing_disc_by_aid = {}
+                for r in ca_rows:
+                    existing_disc_by_aid.setdefault(r["id"], [])
+                    if r["discipline"]:
+                        existing_disc_by_aid[r["id"]].append(r["discipline"])
+
+                athlete_map = {
+                    f"{a['first_name']} {a['last_name']}": a["id"]
+                    for a in all_athletes_list
+                }
+
+                # Athlètes déjà dans la compétition (dédupliqués)
+                existing_names = list(dict.fromkeys(
+                    f"{r['first_name']} {r['last_name']}" for r in ca_rows
+                ))
+
                 with st.form(f"edit_comp_form_{c['id']}"):
-            
                     st.markdown("### ✏️ Modifier les participants")
-            
+
                     selected_athletes = st.multiselect(
                         "Athlètes participants",
-                        options=[
-                            f"{a['first_name']} {a['last_name']}"
-                            for a in all_athletes
-                        ],
-                        default=[
-                            f"{r['first_name']} {r['last_name']}"
-                            for r in ca_rows
-                        ],
+                        options=list(athlete_map.keys()),
+                        default=existing_names,
                         key=f"multi_edit_{c['id']}"
                     )
-            
-                    athlete_map = {
-                        f"{a['first_name']} {a['last_name']}": a["id"]
-                        for a in all_athletes
-                    }
-            
-                    disciplines = {}
-            
+
+                    disciplines = {}  # aid -> list[str]
+
                     if selected_athletes:
                         st.markdown("### 🏅 Disciplines")
-            
                         for athlete_name in selected_athletes:
-            
                             aid = athlete_map[athlete_name]
-            
-                            current_disc = ""
-                            for r in ca_rows:
-                                if r["id"] == aid:
-                                    current_disc = r["discipline"] or ""
-            
-                            pb_disciplines = [
-                                pb["discipline"]
-                                for pb in all_pbs.get(aid, [])
-                            ]
-            
-                            c1, c2 = st.columns([2, 3])
-            
-                            c1.markdown(f"**{athlete_name}**")
-            
+                            current_discs = existing_disc_by_aid.get(aid, [])
+                            pb_disciplines = [pb["discipline"] for pb in all_pbs.get(aid, [])]
+
+                            st.markdown(f"**{athlete_name}**")
+
                             if pb_disciplines:
-                                default_index = 0
-            
-                                if current_disc in pb_disciplines:
-                                    default_index = pb_disciplines.index(current_disc)
-            
-                                chosen = c2.selectbox(
-                                    "Discipline",
-                                    pb_disciplines + ["✏️ Autre..."],
-                                    index=default_index,
+                                c1, c2 = st.columns([3, 1])
+                                chosen = c1.multiselect(
+                                    "Disciplines",
+                                    pb_disciplines,
+                                    default=[d for d in current_discs if d in pb_disciplines],
                                     key=f"edit_disc_{c['id']}_{aid}"
                                 )
-            
-                                if chosen == "✏️ Autre...":
-                                    disciplines[aid] = st.text_input(
-                                        f"Discipline personnalisée {athlete_name}",
-                                        value=current_disc,
+                                add_custom = c2.checkbox(
+                                    "➕ Libre", key=f"edit_custom_cb_{c['id']}_{aid}"
+                                )
+                                if add_custom:
+                                    custom_val = st.text_input(
+                                        f"Discipline libre {athlete_name}",
+                                        value=next(
+                                            (d for d in current_discs if d not in pb_disciplines), ""
+                                        ),
                                         key=f"custom_disc_{c['id']}_{aid}"
                                     )
-                                else:
-                                    disciplines[aid] = chosen
-            
+                                    if custom_val.strip():
+                                        chosen = chosen + [custom_val.strip()]
+                                disciplines[aid] = chosen
                             else:
-                                disciplines[aid] = c2.text_input(
-                                    "Discipline",
-                                    value=current_disc,
+                                free_val = ", ".join(current_discs)
+                                free = st.text_input(
+                                    "Discipline(s) (séparées par virgule)",
+                                    value=free_val,
                                     key=f"free_disc_{c['id']}_{aid}"
                                 )
-            
+                                disciplines[aid] = [d.strip() for d in free.split(",") if d.strip()]
+
                     save_changes = st.form_submit_button(
-                        "💾 Sauvegarder les modifications",
-                        use_container_width=True
+                        "💾 Sauvegarder les modifications", use_container_width=True
                     )
-            
+
                     if save_changes:
-            
-                        selected_ids = [
-                            athlete_map[name]
-                            for name in selected_athletes
-                        ]
-            
+                        rows_to_insert = []
+                        for name_str in selected_athletes:
+                            aid = athlete_map[name_str]
+                            for disc in disciplines.get(aid, []):
+                                rows_to_insert.append((c["id"], aid, disc))
+
                         with db() as conn:
                             cur = conn.cursor()
-            
-                            # Supprimer les anciens participants
                             cur.execute(
                                 "DELETE FROM competition_athletes WHERE competition_id=%s",
                                 (c["id"],)
                             )
-            
-                            # Réinsérer les nouveaux
-                            cur.executemany("""
-                                INSERT INTO competition_athletes
-                                (competition_id, athlete_id, discipline)
-                                VALUES (%s, %s, %s)
-                            """, [
-                                (
-                                    c["id"],
-                                    aid,
-                                    disciplines.get(aid, "").strip()
-                                )
-                                for aid in selected_ids
-                            ])
-            
+                            if rows_to_insert:
+                                cur.executemany("""
+                                    INSERT INTO competition_athletes
+                                        (competition_id, athlete_id, discipline)
+                                    VALUES (%s, %s, %s)
+                                    ON CONFLICT (competition_id, athlete_id, discipline) DO NOTHING
+                                """, rows_to_insert)
+
                         invalidate_cache()
-            
                         st.success("✅ Compétition mise à jour !")
-            
                         st.session_state[f"show_editcomp_{c['id']}"] = False
-            
                         st.rerun()
+
+            # Résumé des participants avec disciplines
             if ca_rows:
-                st.caption("  ".join([
-                    f"{r['first_name']} {r['last_name']} `{r['discipline'] or '—'}`"
-                    for r in ca_rows
-                ]))
+                # Regrouper par athlète pour affichage compact
+                athlete_summary = {}
+                for r in ca_rows:
+                    key = f"{r['first_name']} {r['last_name']}"
+                    athlete_summary.setdefault(key, [])
+                    if r["discipline"]:
+                        athlete_summary[key].append(r["discipline"])
+                summary_parts = []
+                for name_str, discs in athlete_summary.items():
+                    discs_str = " · ".join(f"`{d}`" for d in discs) if discs else "`—`"
+                    summary_parts.append(f"{name_str} {discs_str}")
+                st.caption("  ".join(summary_parts))
+
             if st.session_state.get(f"confirm_delcomp_{c['id']}"):
-                st.warning(f"⚠️ Supprimer **{c['name']}** et tous ses données ?")
+                st.warning(f"⚠️ Supprimer **{c['name']}** et toutes ses données ?")
                 cc1, cc2 = st.columns(2)
                 if cc1.button("✅ Confirmer", key=f"yescomp_{c['id']}"):
                     with db() as conn:
@@ -788,14 +925,14 @@ elif page == "🏟️ Compétitions":
                     st.session_state[f"confirm_delcomp_{c['id']}"] = False
                     st.rerun()
 
+
 # =========================
-# PRONOSTICS (avec blocage le jour J)
+# PRONOSTICS
 # =========================
 elif page == "🎯 Pronostics":
     st.title("🎯 Mes Pronostics")
     st.caption(f"Connecté en tant que **{current_user}**")
 
-    # Info sur les règles de points
     with st.expander("📐 Système de points", expanded=False):
         st.markdown("""
         | Précision | Points |
@@ -816,7 +953,6 @@ elif page == "🎯 Pronostics":
         st.info("Aucune compétition disponible.")
     else:
         for c in comps:
-            # Vérifier si la compétition est aujourd'hui ou passée
             try:
                 comp_date = datetime.strptime(str(c["date"]), "%Y-%m-%d").date()
             except (ValueError, TypeError):
@@ -824,9 +960,9 @@ elif page == "🎯 Pronostics":
 
             is_locked = comp_date is not None and comp_date < today
 
-            with st.expander(f"🏟️ {c['name']} — {fmt(c['date'])}" + (" 🔒" if is_locked else "")):
-                
-                # Afficher un bandeau de blocage si jour J ou passé
+            with st.expander(
+                f"🏟️ {c['name']} — {fmt(c['date'])}" + (" 🔒" if is_locked else "")
+            ):
                 if is_locked:
                     if comp_date == today:
                         st.markdown("""
@@ -850,15 +986,24 @@ elif page == "🎯 Pronostics":
                         </div>
                         """, unsafe_allow_html=True)
 
+                # Une ligne par (athlète, discipline)
                 with db() as conn:
                     cur = conn.cursor()
                     cur.execute("""
-                        SELECT a.id, a.first_name, a.last_name, ca.discipline, p.prediction, pb.pb
+                        SELECT a.id, a.first_name, a.last_name, ca.discipline,
+                               p.prediction, pb.pb
                         FROM competition_athletes ca
                         JOIN athletes a ON a.id = ca.athlete_id
-                        LEFT JOIN predictions p ON p.athlete_id=a.id AND p.competition_id=%s AND p.username=%s
-                        LEFT JOIN athlete_pbs pb ON pb.athlete_id=a.id AND pb.discipline=ca.discipline
-                        WHERE ca.competition_id=%s
+                        LEFT JOIN predictions p
+                            ON  p.athlete_id     = a.id
+                            AND p.competition_id = %s
+                            AND p.username       = %s
+                            AND p.discipline     = ca.discipline
+                        LEFT JOIN athlete_pbs pb
+                            ON  pb.athlete_id  = a.id
+                            AND pb.discipline  = ca.discipline
+                        WHERE ca.competition_id = %s
+                        ORDER BY a.last_name, ca.discipline
                     """, (c["id"], current_user, c["id"]))
                     ath = rows_to_dicts(cur.fetchall())
 
@@ -867,7 +1012,6 @@ elif page == "🎯 Pronostics":
                     continue
 
                 if is_locked:
-                    # Mode lecture seule : affichage des pronostics déjà saisis
                     st.markdown("**Tes pronostics enregistrés :**")
                     for a in ath:
                         col_name, col_disc, col_pb, col_pred = st.columns([3, 2, 2, 2])
@@ -882,9 +1026,9 @@ elif page == "🎯 Pronostics":
                         else:
                             col_pred.caption("Pas de prono")
                 else:
-                    # Mode édition normal
                     with st.form(f"prono_{c['id']}"):
                         st.markdown("**Entrez vos pronostics :**")
+                        # predictions : (aid, discipline) -> float
                         predictions = {}
                         for a in ath:
                             val = float(a["prediction"]) if a["prediction"] is not None else 0.0
@@ -892,25 +1036,37 @@ elif page == "🎯 Pronostics":
                             col_name.markdown(f"**{a['first_name']} {a['last_name']}**")
                             col_disc.markdown(f"🏅 `{a['discipline'] or '—'}`")
                             if a["pb"] is not None:
-                                col_pb.metric("PB", f"{a['pb']:.2f}", delta=None)
+                                col_pb.metric("PB", f"{a['pb']:.2f}")
                             else:
                                 col_pb.caption("Pas de PB")
-                            predictions[a["id"]] = col_input.number_input("Prono", value=val, min_value=0.0, step=0.01, key=f"prono_{c['id']}_{a['id']}")
+                            key = (a["id"], a["discipline"] or "")
+                            predictions[key] = col_input.number_input(
+                                "Prono", value=val, min_value=0.0, step=0.01,
+                                key=f"prono_{c['id']}_{a['id']}_{a['discipline']}"
+                            )
 
-                        if st.form_submit_button("💾 Sauvegarder tous mes pronostics", use_container_width=True):
+                        if st.form_submit_button(
+                            "💾 Sauvegarder tous mes pronostics", use_container_width=True
+                        ):
                             with db() as conn:
                                 cur = conn.cursor()
                                 cur.executemany("""
-                                    INSERT INTO predictions (username,competition_id,athlete_id,prediction)
-                                    VALUES (%s,%s,%s,%s)
-                                    ON CONFLICT (username,competition_id,athlete_id) DO UPDATE SET prediction=EXCLUDED.prediction
-                                """, [(current_user, c["id"], aid, pred) for aid, pred in predictions.items()])
+                                    INSERT INTO predictions
+                                        (username, competition_id, athlete_id, discipline, prediction)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                    ON CONFLICT (username, competition_id, athlete_id, discipline)
+                                    DO UPDATE SET prediction = EXCLUDED.prediction
+                                """, [
+                                    (current_user, c["id"], aid, disc, pred)
+                                    for (aid, disc), pred in predictions.items()
+                                ])
                             invalidate_cache()
                             st.success("✅ Pronostics enregistrés !")
                             st.rerun()
 
+
 # =========================
-# RÉSULTATS (with auto PB update)
+# RÉSULTATS
 # =========================
 elif page == "📊 Résultats":
     st.title("📊 Saisie des Résultats")
@@ -926,9 +1082,13 @@ elif page == "📊 Résultats":
                     cur.execute("""
                         SELECT a.id, a.first_name, a.last_name, ca.discipline, r.result
                         FROM competition_athletes ca
-                        JOIN athletes a ON a.id=ca.athlete_id
-                        LEFT JOIN results r ON r.athlete_id=a.id AND r.competition_id=%s
-                        WHERE ca.competition_id=%s ORDER BY a.last_name
+                        JOIN athletes a ON a.id = ca.athlete_id
+                        LEFT JOIN results r
+                            ON  r.athlete_id     = a.id
+                            AND r.competition_id = %s
+                            AND r.discipline     = ca.discipline
+                        WHERE ca.competition_id = %s
+                        ORDER BY a.last_name, ca.discipline
                     """, (c["id"], c["id"]))
                     ath = rows_to_dicts(cur.fetchall())
 
@@ -938,7 +1098,7 @@ elif page == "📊 Résultats":
 
                 with st.form(f"result_{c['id']}"):
                     st.markdown("**Résultats officiels :**")
-                    results = {}
+                    results = {}  # (aid, discipline) -> float
 
                     for a in ath:
                         val = float(a["result"]) if a["result"] is not None else 0.0
@@ -946,15 +1106,15 @@ elif page == "📊 Résultats":
                         if a["result"] is not None:
                             label += f"  ✅ (actuel: {a['result']})"
 
-                        results[a["id"]] = st.number_input(
-                            label,
-                            value=val,
-                            min_value=0.0,
-                            step=0.01,
-                            key=f"res_{c['id']}_{a['id']}"
+                        key = (a["id"], a["discipline"] or "")
+                        results[key] = st.number_input(
+                            label, value=val, min_value=0.0, step=0.01,
+                            key=f"res_{c['id']}_{a['id']}_{a['discipline']}"
                         )
 
-                    if st.form_submit_button("💾 Enregistrer les résultats", use_container_width=True):
+                    if st.form_submit_button(
+                        "💾 Enregistrer les résultats", use_container_width=True
+                    ):
                         pb_updates = []
                         should_notify = False
 
@@ -962,44 +1122,47 @@ elif page == "📊 Résultats":
                             cur = conn.cursor()
 
                             cur.executemany("""
-                                INSERT INTO results (competition_id, athlete_id, result)
-                                VALUES (%s, %s, %s)
-                                ON CONFLICT (competition_id, athlete_id)
+                                INSERT INTO results
+                                    (competition_id, athlete_id, discipline, result)
+                                VALUES (%s, %s, %s, %s)
+                                ON CONFLICT (competition_id, athlete_id, discipline)
                                 DO UPDATE SET result = EXCLUDED.result
                             """, [
-                                (c["id"], aid, res)
-                                for aid, res in results.items()
+                                (c["id"], aid, disc, res)
+                                for (aid, disc), res in results.items()
                                 if res > 0
                             ])
 
                             for a in ath:
-                                res_val = results.get(a["id"], 0.0)
-                                if res_val <= 0 or not a["discipline"]:
+                                disc = a["discipline"] or ""
+                                res_val = results.get((a["id"], disc), 0.0)
+                                if res_val <= 0 or not disc:
                                     continue
                                 updated, old_pb, new_pb = maybe_update_pb(
-                                    cur, a["id"], a["discipline"], res_val
+                                    cur, a["id"], disc, res_val
                                 )
                                 if updated:
                                     name_str = f"{a['first_name']} {a['last_name']}"
                                     if old_pb is None:
                                         pb_updates.append(
-                                            f"🆕 **{name_str}** — Premier PB en {a['discipline']} : **{new_pb:.2f}**"
+                                            f"🆕 **{name_str}** — Premier PB en {disc} : **{new_pb:.2f}**"
                                         )
                                     else:
                                         pb_updates.append(
-                                            f"🏅 **{name_str}** — Nouveau PB en {a['discipline']} : {old_pb:.2f} → **{new_pb:.2f}**"
+                                            f"🏅 **{name_str}** — Nouveau PB en {disc} : {old_pb:.2f} → **{new_pb:.2f}**"
                                         )
 
-                            cur.execute("""
-                                SELECT 1 FROM competition_notifications WHERE competition_id=%s
-                            """, (c["id"],))
+                            cur.execute(
+                                "SELECT 1 FROM competition_notifications WHERE competition_id=%s",
+                                (c["id"],)
+                            )
                             already_sent = cur.fetchone()
                             if not already_sent:
                                 should_notify = True
-                                cur.execute("""
-                                    INSERT INTO competition_notifications (competition_id)
-                                    VALUES (%s)
-                                """, (c["id"],))
+                                cur.execute(
+                                    "INSERT INTO competition_notifications (competition_id) VALUES (%s)",
+                                    (c["id"],)
+                                )
 
                         if should_notify:
                             send_onesignal_notification(
@@ -1018,75 +1181,25 @@ elif page == "📊 Résultats":
 
                         st.rerun()
 
+
 # =========================
-# HISTORIQUE — version visuelle enrichie
+# HISTORIQUE
 # =========================
 elif page == "📜 Historique":
     st.title("📜 Historique")
 
     st.markdown("""
     <style>
-    .hist-comp-header {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        border-left: 4px solid #e94560;
-        border-radius: 0 12px 12px 0;
-        padding: 12px 20px;
-        margin-bottom: 16px;
-    }
     .hist-athlete-block {
-        background: #0f172a;
-        border: 1px solid #1e293b;
-        border-radius: 14px;
-        padding: 16px 20px;
-        margin-bottom: 14px;
+        background: #0f172a; border: 1px solid #1e293b;
+        border-radius: 14px; padding: 16px 20px; margin-bottom: 14px;
     }
     .hist-athlete-name {
-        font-size: 1.05em;
-        font-weight: 700;
-        color: #f1f5f9;
-        margin-bottom: 10px;
+        font-size: 1.05em; font-weight: 700; color: #f1f5f9; margin-bottom: 10px;
     }
     .hist-discipline-tag {
-        background: #1e293b;
-        color: #94a3b8;
-        border-radius: 6px;
-        padding: 2px 8px;
-        font-size: 0.8em;
-        margin-left: 8px;
-        font-weight: 500;
-    }
-    .hist-result-big {
-        font-family: 'Bebas Neue', sans-serif;
-        font-size: 2em;
-        color: #e94560;
-        letter-spacing: 1px;
-    }
-    .hist-user-row {
-        background: #1e293b;
-        border-radius: 10px;
-        padding: 10px 14px;
-        margin-bottom: 8px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .hist-prono-val {
-        font-weight: 700;
-        color: #60a5fa;
-        font-size: 1.1em;
-    }
-    .hist-pts-badge {
-        border-radius: 20px;
-        padding: 4px 14px;
-        font-weight: 800;
-        font-size: 1em;
-    }
-    .hist-precision-tag {
-        border-radius: 8px;
-        padding: 2px 10px;
-        font-size: 0.8em;
-        font-weight: 600;
-        margin-left: 8px;
+        background: #1e293b; color: #94a3b8; border-radius: 6px;
+        padding: 2px 8px; font-size: 0.8em; margin-left: 8px; font-weight: 500;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -1104,51 +1217,53 @@ elif page == "📜 Historique":
                     st.info("Aucun résultat disponible pour cette compétition.")
                     continue
 
-                # Regrouper par athlète
+                # Regrouper par (athlète, discipline, résultat)
                 athletes_data = {}
                 for row in rows:
                     key = (row["first_name"], row["last_name"], row["discipline"], row["result"])
                     if key not in athletes_data:
-                        athletes_data[key] = {"result": row["result"], "discipline": row["discipline"],
-                                              "first_name": row["first_name"], "last_name": row["last_name"],
-                                              "athlete_pb": row.get("athlete_pb"),
-                                              "pronos": []}
+                        athletes_data[key] = {
+                            "result":     row["result"],
+                            "discipline": row["discipline"],
+                            "first_name": row["first_name"],
+                            "last_name":  row["last_name"],
+                            "athlete_pb": row.get("athlete_pb"),
+                            "pronos": []
+                        }
                     athletes_data[key]["pronos"].append({
-                        "username": row["username"],
+                        "username":   row["username"],
                         "prediction": row["prediction"]
                     })
 
-                # Stats globales de la compétition
-                all_scores_comp = []
-                for row in rows:
-                    all_scores_comp.append(score(row["prediction"], row["result"]))
-                
-                total_pronos = len(rows)
-                perfect_count = sum(1 for row in rows if abs(row["prediction"] - row["result"]) == 0)
-                avg_pts = sum(all_scores_comp) / len(all_scores_comp) if all_scores_comp else 0
+                # Stats globales
+                all_scores_comp = [score(r["prediction"], r["result"]) for r in rows]
+                total_pronos  = len(rows)
+                perfect_count = sum(1 for r in rows if abs(r["prediction"] - r["result"]) == 0)
+                avg_pts       = sum(all_scores_comp) / len(all_scores_comp) if all_scores_comp else 0
 
-                # Bandeau stats de la compétition
                 stat_cols = st.columns(3)
                 stat_cols[0].metric("🎽 Pronostics", total_pronos)
                 stat_cols[1].metric("🎯 Exactitudes", perfect_count)
                 stat_cols[2].metric("📊 Moy. pts", f"{avg_pts:.0f}")
                 st.markdown("---")
 
-                # Affichage par athlète
                 for (fn, ln, disc, result), data in athletes_data.items():
                     athlete_pb = data.get("athlete_pb")
                     higher = is_higher_better(disc or "")
-                    is_pb = False
+                    is_pb  = False
                     if athlete_pb is not None:
                         is_pb = (result >= float(athlete_pb)) if higher else (result <= float(athlete_pb))
 
                     result_color = "#22c55e" if is_pb else "#e94560"
                     pb_badge = ""
                     if is_pb:
-                        pb_badge = "<span style='background:#14532d;color:#86efac;border-radius:8px;padding:2px 10px;font-size:0.78em;font-weight:700;margin-left:10px;letter-spacing:0.5px;'>🏅 PB</span>"
+                        pb_badge = "<span style='background:#14532d;color:#86efac;border-radius:8px;padding:2px 10px;font-size:0.78em;font-weight:700;margin-left:10px;'>🏅 PB</span>"
                     elif athlete_pb is not None:
                         diff_from_pb = abs(result - float(athlete_pb))
-                        sign = "+" if (not higher and result > float(athlete_pb)) or (higher and result < float(athlete_pb)) else "-" if diff_from_pb > 0 else ""
+                        sign = "+" if (
+                            (not higher and result > float(athlete_pb)) or
+                            (higher and result < float(athlete_pb))
+                        ) else "-" if diff_from_pb > 0 else ""
                         pb_badge = f"<span style='background:#1e293b;color:#64748b;border-radius:8px;padding:2px 10px;font-size:0.78em;font-weight:600;margin-left:10px;'>{sign}{diff_from_pb:.2f}s du PB ({float(athlete_pb):.2f})</span>"
 
                     st.markdown(f"""
@@ -1166,27 +1281,25 @@ elif page == "📜 Historique":
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # Trier les pronos par score décroissant
-                    pronos_sorted = sorted(data["pronos"], key=lambda x: score(x["prediction"], result), reverse=True)
+                    pronos_sorted = sorted(
+                        data["pronos"],
+                        key=lambda x: score(x["prediction"], result),
+                        reverse=True
+                    )
 
                     for i, prono in enumerate(pronos_sorted):
-                        pts = score(prono["prediction"], result)
+                        pts  = score(prono["prediction"], result)
                         diff = abs(prono["prediction"] - result)
                         lbl, lbl_color = score_label(prono["prediction"], result)
-                        
-                        # Couleur du badge points selon score
+
                         if pts >= 250:
-                            pts_bg = "linear-gradient(135deg,#854d0e,#ca8a04)"
-                            pts_color = "#fef08a"
+                            pts_bg, pts_color = "linear-gradient(135deg,#854d0e,#ca8a04)", "#fef08a"
                         elif pts >= 150:
-                            pts_bg = "linear-gradient(135deg,#065f46,#059669)"
-                            pts_color = "#d1fae5"
+                            pts_bg, pts_color = "linear-gradient(135deg,#065f46,#059669)", "#d1fae5"
                         elif pts >= 60:
-                            pts_bg = "linear-gradient(135deg,#1e3a5f,#2563eb)"
-                            pts_color = "#bfdbfe"
+                            pts_bg, pts_color = "linear-gradient(135deg,#1e3a5f,#2563eb)", "#bfdbfe"
                         else:
-                            pts_bg = "linear-gradient(135deg,#1e293b,#334155)"
-                            pts_color = "#94a3b8"
+                            pts_bg, pts_color = "linear-gradient(135deg,#1e293b,#334155)", "#94a3b8"
 
                         rank_icon = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
 
@@ -1219,6 +1332,7 @@ elif page == "📜 Historique":
 
                     st.markdown("<br>", unsafe_allow_html=True)
 
+
 # =========================
 # CLASSEMENT
 # =========================
@@ -1237,7 +1351,11 @@ elif page == "🏆 Classement":
         return s
 
     def ranked(scores_map):
-        return {u: i for i, (u, _) in enumerate(sorted(scores_map.items(), key=lambda x: -x[1]), 1)}
+        return {
+            u: i for i, (u, _) in enumerate(
+                sorted(scores_map.items(), key=lambda x: -x[1]), 1
+            )
+        }
 
     scores_now    = compute_scores(all_scored_rows)
     sorted_scores = sorted(scores_now.items(), key=lambda x: -x[1])
@@ -1274,11 +1392,20 @@ elif page == "🏆 Classement":
     for i, (username, total_score) in enumerate(sorted_scores, 1):
         is_me = username == current_user
         if i == 1:
-            bg,border,text_color,rank_label,badge_col = "linear-gradient(135deg,#F9D423 0%,#F7971E 100%)","#E6A817","#3d2000","🥇","#5a3a00"
+            bg,border,text_color,rank_label,badge_col = (
+                "linear-gradient(135deg,#F9D423 0%,#F7971E 100%)",
+                "#E6A817","#3d2000","🥇","#5a3a00"
+            )
         elif i == 2:
-            bg,border,text_color,rank_label,badge_col = "linear-gradient(135deg,#e0e0e0 0%,#9e9e9e 100%)","#757575","#1a1a1a","🥈","#444444"
+            bg,border,text_color,rank_label,badge_col = (
+                "linear-gradient(135deg,#e0e0e0 0%,#9e9e9e 100%)",
+                "#757575","#1a1a1a","🥈","#444444"
+            )
         elif i == 3:
-            bg,border,text_color,rank_label,badge_col = "linear-gradient(135deg,#cd9b5a 0%,#8B5e2a 100%)","#7a4f22","#fff0e0","🥉","#c8a07a"
+            bg,border,text_color,rank_label,badge_col = (
+                "linear-gradient(135deg,#cd9b5a 0%,#8B5e2a 100%)",
+                "#7a4f22","#fff0e0","🥉","#c8a07a"
+            )
         else:
             bg         = "#2d3f5e" if is_me else "#1e293b"
             border     = "#FFD700" if is_me else "#334155"
@@ -1286,16 +1413,19 @@ elif page == "🏆 Classement":
             rank_label = "#" + str(i)
             badge_col  = "#94a3b8"
 
-        pts_color  = "#3d2000" if i==1 else "#1a1a1a" if i==2 else "#fff0e0" if i==3 else "#e94560"
-        me_badge   = '<span style="font-size:0.72em;color:{c};margin-left:6px;">(vous)</span>'.format(c=badge_col) if is_me else ""
+        pts_color = "#3d2000" if i==1 else "#1a1a1a" if i==2 else "#fff0e0" if i==3 else "#e94560"
+        me_badge  = (
+            f'<span style="font-size:0.72em;color:{badge_col};margin-left:6px;">(vous)</span>'
+            if is_me else ""
+        )
 
         if ranks_before is not None:
             prev_rank = ranks_before.get(username, len(usernames))
             delta = prev_rank - i
             if delta > 0:
-                delta_html = '<span style="color:#22c55e;font-size:0.88em;font-weight:700;background:rgba(34,197,94,0.15);padding:1px 6px;border-radius:10px;">▲ +{d}</span>'.format(d=delta)
+                delta_html = f'<span style="color:#22c55e;font-size:0.88em;font-weight:700;background:rgba(34,197,94,0.15);padding:1px 6px;border-radius:10px;">▲ +{delta}</span>'
             elif delta < 0:
-                delta_html = '<span style="color:#ef4444;font-size:0.88em;font-weight:700;background:rgba(239,68,68,0.15);padding:1px 6px;border-radius:10px;">▼ {d}</span>'.format(d=delta)
+                delta_html = f'<span style="color:#ef4444;font-size:0.88em;font-weight:700;background:rgba(239,68,68,0.15);padding:1px 6px;border-radius:10px;">▼ {delta}</span>'
             else:
                 delta_html = '<span style="color:#94a3b8;font-size:0.88em;padding:1px 6px;">—</span>'
         else:
@@ -1312,16 +1442,16 @@ elif page == "🏆 Classement":
         with st.expander(f"📋 Détail « {last_comp['name']} » — {fmt(last_comp['date'])}"):
             with db() as conn:
                 cur = conn.cursor()
-                # Recalcul avec le nouveau système de score
                 cur.execute("""
                     SELECT p.username, p.prediction, r.result
                     FROM predictions p
-                    JOIN results r ON p.competition_id=r.competition_id AND p.athlete_id=r.athlete_id
-                    WHERE p.competition_id=%s
+                    JOIN results r ON  p.competition_id = r.competition_id
+                                   AND p.athlete_id     = r.athlete_id
+                                   AND p.discipline     = r.discipline
+                    WHERE p.competition_id = %s
                 """, (last_comp["id"],))
                 last_raw = rows_to_dicts(cur.fetchall())
 
-            # Calcul côté Python avec le nouveau score()
             user_pts = {}
             for row in last_raw:
                 u = row["username"]
