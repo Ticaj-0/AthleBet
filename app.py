@@ -886,7 +886,70 @@ elif page == "🏟️ Compétitions":
                     )
 
                     if save_changes:
+                    
+                        missing_custom = False
+                    
+                        for athlete_name in selected_athletes:
+                    
+                            aid = athlete_map[athlete_name]
+                    
+                            selected_discs = st.session_state.get(
+                                f"edit_disc_{c['id']}_{aid}",
+                                []
+                            )
+                    
+                            if "✏️ Discipline libre" in selected_discs:
+                    
+                                custom_val = st.session_state.get(
+                                    f"custom_disc_{c['id']}_{aid}",
+                                    ""
+                                )
+                    
+                                if not custom_val.strip():
+                                    missing_custom = True
+                    
+                        if missing_custom:
+                            st.warning(
+                                "⚠️ Une discipline libre a été sélectionnée. "
+                                "Le champ est maintenant affiché : remplissez-le puis cliquez à nouveau sur sauvegarder."
+                            )
+                            st.stop()
+                    
                         rows_to_insert = []
+                    
+                        for name_str in selected_athletes:
+                    
+                            aid = athlete_map[name_str]
+                    
+                            for disc in disciplines.get(aid, []):
+                    
+                                rows_to_insert.append((c["id"], aid, disc))
+                    
+                        with db() as conn:
+                            cur = conn.cursor()
+                    
+                            cur.execute(
+                                "DELETE FROM competition_athletes WHERE competition_id=%s",
+                                (c["id"],)
+                            )
+                    
+                            if rows_to_insert:
+                                cur.executemany("""
+                                    INSERT INTO competition_athletes
+                                        (competition_id, athlete_id, discipline)
+                                    VALUES (%s, %s, %s)
+                                    ON CONFLICT
+                                    (competition_id, athlete_id, discipline)
+                                    DO NOTHING
+                                """, rows_to_insert)
+                    
+                        invalidate_cache()
+                    
+                        st.success("✅ Compétition mise à jour !")
+                    
+                        st.session_state[f"show_editcomp_{c['id']}"] = False
+                    
+                        st.rerun()
                         for name_str in selected_athletes:
                             aid = athlete_map[name_str]
                             for disc in disciplines.get(aid, []):
