@@ -231,7 +231,7 @@ def fmt(d):
 def score(p, r):
     d = abs(p - r)
     BREAKPOINTS = [
-        (0.0,   300),
+        (0.0,   500),
         (0.01,  250),
         (0.10,  200),
         (0.50,  150),
@@ -240,7 +240,7 @@ def score(p, r):
         (10.0,    0),
     ]
     if d <= 0:
-        return 300
+        return 500
     for i in range(1, len(BREAKPOINTS)):
         d0, p0 = BREAKPOINTS[i - 1]
         d1, p1 = BREAKPOINTS[i]
@@ -1014,7 +1014,7 @@ elif page == "🎯 Pronostics":
         st.markdown("""
         | Précision | Points |
         |-----------|--------|
-        | 🎯 Chrono exacte | **300 pts** |
+        | 🎯 Chrono exacte | **500 pts** |
         | ⚡ Au centième (< 0.01s) | **250 pts** |
         | 🔥 Au dixième (< 0.10s) | **200 pts** |
         | ✨ À la demi-seconde (< 0.50s) | **150 pts** |
